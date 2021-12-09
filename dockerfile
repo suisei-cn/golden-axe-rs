@@ -24,6 +24,6 @@ USER app
 WORKDIR /app
 
 # Get compiled binaries from builder's cargo install directory
-COPY --from=builder /root/.cargo/bin/ /app/
+COPY --from=builder /usr/local/cargo/bin/ /app/
 
 # No CMD or ENTRYPOINT, see fly.toml with `cmd` override.
