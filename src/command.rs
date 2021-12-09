@@ -1,117 +1,137 @@
-use anyhow::{anyhow, bail, Result};
-use teloxide::payloads::PromoteChatMember;
+use anyhow::Result;
+use log::{error, info};
 use teloxide::prelude::*;
-use teloxide::requests::JsonRequest;
-use teloxide::types::{ChatKind, ChatMemberKind, ChatPublic, Message, PublicChatKind};
+use teloxide::types::{ChatKind, ChatPublic, Message, MessageKind, PublicChatKind};
 use teloxide::utils::command::BotCommand;
-use teloxide::Bot;
 
-#[derive(BotCommand)]
+use crate::{send_to_debug_channel, BotType, InChatCtx};
+
+pub type Ctx = UpdateWithCx<BotType, Message>;
+
+#[derive(Clone, Copy, Debug)]
+pub struct ConstBotCommand<'a> {
+    pub command: &'a str,
+    pub description: &'a str,
+}
+
+impl<'a> ConstBotCommand<'a> {
+    pub fn into_teloxide(val: &ConstBotCommand<'a>) -> teloxide::types::BotCommand {
+        teloxide::types::BotCommand {
+            command: val.command.into(),
+            description: val.description.into(),
+        }
+    }
+}
+
+pub const COMMANDS: &[ConstBotCommand] = &[
+    ConstBotCommand {
+        command: "help",
+        description: "display help text",
+    },
+    ConstBotCommand {
+        command: "title",
+        description: "change my title",
+    },
+    ConstBotCommand {
+        command: "demote",
+        description: "remove my admin and title",
+    },
+];
+
+#[derive(BotCommand, Debug, Clone)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
 pub enum Command {
     #[command(description = "display this text.")]
     Help,
     #[command(description = "change my title.")]
     Title { title: String },
+    #[command(description = "demote me and remove my title")]
+    Demote,
 }
 
-pub async fn handle_command(
-    cx: UpdateWithCx<AutoSend<Bot>, Message>,
-    command: Command,
-) -> Result<()> {
+macro_rules! command {
+    ($cx:ident, $handler:expr) => {
+        let bot = $cx.requester.clone();
+        if let Err(e) = $handler {
+            error!("{}", e);
+            $cx.reply_to("Internal Error").await?;
+            send_to_debug_channel(&bot, e).await?;
+        }
+    };
+}
+
+macro_rules! assert_in_group {
+    ($cx:ident) => {
+        if !matches!(
+            $cx.update.chat.kind,
+            ChatKind::Public(ChatPublic {
+                kind: PublicChatKind::Group(_) | PublicChatKind::Supergroup(_),
+                ..
+            })
+        ) {
+            $cx.reply_to("Call this command in a group or supergroup")
+                .await?;
+            return Ok(());
+        }
+    };
+}
+
+pub async fn handle_command(cx: Ctx, command: Command) -> Result<()> {
+    let from = if_chain::if_chain! {
+        if let MessageKind::Common(ref kind) = cx.update.kind;
+        if let Some(ref user) = kind.from;
+        then {
+            user.full_name()
+        } else {
+            // In channel, return
+            return Ok(());
+        }
+    };
+
+    info!("{}: CMD [{:?}]", from, &command);
+
     match command {
         Command::Help => {
             cx.answer(Command::descriptions()).await?;
         }
-        Command::Title { title } => set_title(cx, title).await?,
+        Command::Title { title } => {
+            command!(cx, set_title(&cx, title).await);
+        }
+        Command::Demote => {
+            command!(cx, demote_me(&cx).await);
+        }
     };
 
     Ok(())
 }
 
-async fn set_title(cx: UpdateWithCx<AutoSend<Bot>, Message>, title: String) -> Result<()> {
-    if title.is_empty() {
-        cx.answer("Title cannot be empty").await?;
-        bail!("Bad request: empty title");
+async fn demote_me(cx: &Ctx) -> Result<()> {
+    assert_in_group!(cx);
+
+    let temp_ctx = InChatCtx::from_ctx(cx).await?;
+
+    if let Err(e) = temp_ctx.can_promote() {
+        cx.reply_to(e).await?;
+    } else {
+        temp_ctx.demote().await?;
+        cx.reply_to("Done! Wait for a while to take effect.")
+            .await?;
     }
-    let sender = cx.update.from().ok_or(anyhow!("No sender"))?;
 
-    let chat_id = cx.chat_id();
-    match cx.update.chat.kind {
-        ChatKind::Public(ChatPublic {
-            kind: PublicChatKind::Group(_) | PublicChatKind::Supergroup(_),
-            ..
-        }) => {}
-        _ => {
-            cx.reply_to("Call this command in a group or supergroup")
-                .await?;
-            bail!("Bad request: not in group")
-        }
-    };
-    let bot = cx.requester.clone();
-    let me_in_chat = bot
-        .get_chat_member(chat_id, bot.get_me().await?.user.id)
-        .await?;
-    let sender_in_chat = bot.get_chat_member(chat_id, sender.id).await?;
+    Ok(())
+}
 
-    match me_in_chat.kind {
-        // The bot has rights to promote members
-        ChatMemberKind::Administrator(my_rights) if my_rights.can_promote_members => {
-            match sender_in_chat.kind {
-                // The bot can edit the member
-                ChatMemberKind::Administrator(sender_rights) if sender_rights.can_be_edited => {
-                    bot.set_chat_administrator_custom_title(chat_id, sender.id, title)
-                        .await?;
-                    cx.reply_to("Done!").await?;
-                }
+async fn set_title(cx: &Ctx, title: String) -> Result<()> {
+    assert_in_group!(cx);
 
-                // The member is admin, but the bot can't edit him (others promotes him)
-                ChatMemberKind::Administrator(_) => {
-                    cx.reply_to("Failed: I can't change your info (are you promoted by others?)")
-                        .await?;
-                }
+    let temp_ctx = InChatCtx::from_ctx(cx).await?;
 
-                // The member is normal member
-                ChatMemberKind::Member => {
-                    let payload = PromoteChatMember {
-                        chat_id: chat_id.into(),
-                        user_id: sender.id,
-                        can_invite_users: Some(true),
-                        can_manage_chat: None,
-                        can_change_info: None,
-                        can_post_messages: None,
-                        can_edit_messages: None,
-                        can_delete_messages: None,
-                        can_manage_voice_chats: None,
-                        can_restrict_members: None,
-                        can_pin_messages: None,
-                        can_promote_members: None,
-                        is_anonymous: None,
-                    };
-
-                    JsonRequest::new(bot.inner().clone(), payload)
-                        .send()
-                        .await?;
-                    bot.set_chat_administrator_custom_title(chat_id, sender.id, title)
-                        .await?;
-                    cx.reply_to("Done!").await?;
-                }
-
-                // Other
-                _ => {
-                    cx.reply_to("I can't change your info").await?;
-                }
-            }
-        }
-        // The bot is admin but don't have the privilege to promote admins
-        ChatMemberKind::Administrator(_) => {
-            cx.reply_to("I don't have privilege to promote members")
-                .await?;
-        }
-        // Other
-        _ => {
-            cx.reply_to("I'm not an admin").await?;
-        }
+    if let Err(e) = temp_ctx.change_title(title).await {
+        cx.reply_to(e).await?;
+    } else {
+        cx.reply_to("Done! Wait for a while to take effect.")
+            .await?;
     }
+
     Ok(())
 }
