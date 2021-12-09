@@ -21,3 +21,5 @@ axum              = "0.4.2"
 [[bin]]
 name = "golden-axe"
 path = "src/main.rs"
+
+[features]

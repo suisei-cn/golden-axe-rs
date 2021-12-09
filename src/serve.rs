@@ -1,4 +1,4 @@
-use std::{convert::Infallible, env, net::SocketAddr};
+use std::{convert::Infallible, env};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -6,7 +6,7 @@ use axum::{
     extract::Extension,
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::{any, get, post},
     AddExtensionLayer, Json, Router,
 };
 use log::info;
@@ -42,13 +42,11 @@ pub async fn webhook(
     let (tx, rx) = mpsc::unbounded_channel::<Result<Update, Infallible>>();
 
     let app = Router::<Body>::new()
-        .route("/health", get(|| async { (StatusCode::NO_CONTENT, "") }))
+        .route(&format!("/{}", path), post(update))
         .layer(AddExtensionLayer::new(tx))
-        .route(&format!("/{}", path), post(update));
+        .route("/health", any(|| async { "OK" }));
 
-    let addr = "0.0.0.0:8080".parse::<SocketAddr>().unwrap();
-
-    tokio::spawn(axum::Server::bind(&addr).serve(app.into_make_service()));
+    tokio::spawn(axum::Server::bind(&"0.0.0.0:8080".parse()?).serve(app.into_make_service()));
     let stream = UnboundedReceiverStream::new(rx);
 
     Ok(StatefulListener::from_stream_without_graceful_shutdown(
