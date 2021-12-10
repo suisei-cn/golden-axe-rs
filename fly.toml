@@ -11,7 +11,7 @@ processes = []
   ENV = "Production"
 
 [experimental]
-  cmd = "./golden-axe"
+  cmd = "golden-axe"
 
 [[services]]
   internal_port = 8080

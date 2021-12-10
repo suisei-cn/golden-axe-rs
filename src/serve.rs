@@ -6,7 +6,7 @@ use axum::{
     extract::Extension,
     http::StatusCode,
     response::IntoResponse,
-    routing::{any, get, post},
+    routing::{any, post},
     AddExtensionLayer, Json, Router,
 };
 use log::info;

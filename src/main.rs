@@ -2,10 +2,10 @@
 
 mod_use![command, utils, in_chat_ctx, serve];
 
-use std::{env, lazy::SyncOnceCell};
+use std::{collections::HashMap, env, lazy::SyncOnceCell};
 
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 use mod_use::mod_use;
 use teloxide::{adaptors::DefaultParseMode, prelude::*, types::ParseMode};
 
@@ -16,11 +16,15 @@ type BotType = AutoSend<DefaultParseMode<Bot>>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv::dotenv()?;
+    println!("Start running");
+    if let Err(e) = dotenv::dotenv() {
+        warn!("Dotenv failed: {}", e)
+    }
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "INFO")
     };
     pretty_env_logger::init();
+    info!("{:#?}", env::vars().collect::<HashMap<_, _>>());
     run().await?;
     Ok(())
 }
