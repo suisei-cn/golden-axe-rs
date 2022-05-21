@@ -7,11 +7,11 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use log::warn;
 use teloxide::{
     prelude::{Request, Requester},
     types::ChatId,
 };
+use tracing::warn;
 
 pub(crate) static DEBUG_CHANNEL: SyncOnceCell<i64> = SyncOnceCell::new();
 

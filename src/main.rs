@@ -1,13 +1,15 @@
+#![feature(let_chains)]
 #![feature(once_cell)]
 
 mod_use![command, utils, in_chat_ctx, serve];
 
-use std::{collections::HashMap, env, lazy::SyncOnceCell};
+use std::{env, lazy::SyncOnceCell};
 
 use anyhow::Result;
-use log::{info, warn};
 use mod_use::mod_use;
 use teloxide::{adaptors::DefaultParseMode, prelude::*, types::ParseMode};
+use tokio::select;
+use tracing::{info, warn};
 
 use crate::command::{handle_command, ConstBotCommand, COMMANDS};
 
@@ -16,27 +18,38 @@ type BotType = AutoSend<DefaultParseMode<Bot>>;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("Start running");
     if let Err(e) = dotenv::dotenv() {
         warn!("Dotenv failed: {}", e)
     }
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "INFO")
     };
-    pretty_env_logger::init();
-    info!("{:#?}", env::vars().collect::<HashMap<_, _>>());
-    run().await?;
+    tracing_subscriber::fmt().init();
+    info!("Start running");
+
+    let bot = Bot::from_env().parse_mode(ParseMode::Html).auto_send();
+
+    select! {
+        _ = run(&bot) => {},
+        _ = tokio::signal::ctrl_c() => {}
+    }
+
+    send_to_debug_channel(
+        &bot,
+        format!("Golden Axe <b>Offline</b> (#{})", RUN_HASH.get().unwrap()),
+    )
+    .await?;
+
     Ok(())
 }
 
-async fn run() -> Result<()> {
+async fn run(bot: &BotType) -> Result<()> {
     init_debug_channel();
 
     let _ = RUN_HASH.set(get_run_hash());
 
-    let bot = Bot::from_env().parse_mode(ParseMode::Html).auto_send();
-    let bot_user = bot.get_me().await?.user;
-    info!("Running as: {:#?}", bot_user);
+    let username = bot.get_me().await?.user;
+    info!(?username, "Bot logged in");
     bot.set_my_commands(COMMANDS.iter().map(ConstBotCommand::into_teloxide))
         .await?;
 
@@ -52,7 +65,7 @@ async fn run() -> Result<()> {
             let webhook = webhook(&bot).await?;
             teloxide::commands_repl_with_listener(
                 bot.clone(),
-                bot_user.full_name(),
+                username.full_name(),
                 handle_command,
                 webhook,
             )
@@ -60,15 +73,9 @@ async fn run() -> Result<()> {
         }
         _ => {
             info!("Poll mode");
-            teloxide::commands_repl(bot.clone(), bot_user.full_name(), handle_command).await
+            teloxide::commands_repl(bot.clone(), username.full_name(), handle_command).await
         }
     }
-
-    send_to_debug_channel(
-        &bot,
-        format!("Golden Axe <b>Offline</b> (#{})", RUN_HASH.get().unwrap()),
-    )
-    .await?;
 
     Ok(())
 }

@@ -1,8 +1,8 @@
 use anyhow::Result;
-use log::{error, info};
 use teloxide::prelude::*;
-use teloxide::types::{ChatKind, ChatPublic, Message, MessageKind, PublicChatKind};
+use teloxide::types::{ChatKind, ChatPublic, Message, PublicChatKind, User};
 use teloxide::utils::command::BotCommand;
+use tracing::{error, info};
 
 use crate::{send_to_debug_channel, BotType, InChatCtx};
 
@@ -77,18 +77,9 @@ macro_rules! assert_in_group {
 }
 
 pub async fn handle_command(cx: Ctx, command: Command) -> Result<()> {
-    let from = if_chain::if_chain! {
-        if let MessageKind::Common(ref kind) = cx.update.kind;
-        if let Some(ref user) = kind.from;
-        then {
-            user.full_name()
-        } else {
-            // In channel, return
-            return Ok(());
-        }
-    };
+    let from = cx.update.from().map(User::full_name);
 
-    info!("{}: CMD [{:?}]", from, &command);
+    info!(?from, ?command);
 
     match command {
         Command::Help => {

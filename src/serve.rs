@@ -9,7 +9,6 @@ use axum::{
     routing::{any, post},
     AddExtensionLayer, Json, Router,
 };
-use log::info;
 use teloxide::{
     dispatching::update_listeners::{self, StatefulListener},
     prelude::*,
@@ -17,6 +16,7 @@ use teloxide::{
 };
 use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use tracing::info;
 use url::Url;
 
 use crate::{send_to_debug_channel, RUN_HASH};

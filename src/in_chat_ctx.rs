@@ -6,6 +6,7 @@ use teloxide::{
     types::{Administrator, ChatMember, ChatMemberKind, User},
 };
 use tokio::time::sleep;
+use tracing::warn;
 
 use crate::{BotType, Ctx};
 
@@ -56,28 +57,33 @@ impl<'a> InChatCtx<'a> {
         Ok(())
     }
 
-    async fn set_title(&self, title: impl Into<String>) -> Result<()> {
+    async fn set_title(&self, title: impl Into<String> + Send) -> Result<()> {
         self.bot
             .set_chat_administrator_custom_title(self.chat_id, self.sender.id, title)
             .await?;
         Ok(())
     }
 
-    pub async fn change_title(&self, title: impl Into<String>) -> Result<(), &str> {
+    pub async fn change_title(&self, title: impl Into<String> + Send) -> Result<(), &str> {
         match self.tx.kind {
             ChatMemberKind::Administrator(_) => {
                 self.can_edit()?;
-                self.set_title(title)
-                    .await
-                    .map_err(|_| "Failed to set title")
+                self.set_title(title).await.map_err(|error| {
+                    warn!(%error);
+                    "Failed to set title"
+                })
             }
             ChatMemberKind::Member => {
                 self.can_promote()?;
-                self.promote().await.map_err(|_| "Failed to promote")?;
+                self.promote().await.map_err(|error| {
+                    warn!(%error);
+                    "Failed to set title"
+                })?;
                 sleep(Duration::from_secs_f32(0.5)).await;
-                self.set_title(title)
-                    .await
-                    .map_err(|_| "Failed to set title")
+                self.set_title(title).await.map_err(|error| {
+                    warn!(%error);
+                    "Failed to set title"
+                })
             }
             _ => Err("I can't edit you because of your status"),
         }
