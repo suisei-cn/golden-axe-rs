@@ -1,8 +1,11 @@
+use std::time::Duration;
+
 use anyhow::{anyhow, Result};
 use teloxide::{
     prelude::*,
     types::{Administrator, ChatMember, ChatMemberKind, User},
 };
+use tokio::time::sleep;
 
 use crate::{BotType, Ctx};
 
@@ -71,6 +74,7 @@ impl<'a> InChatCtx<'a> {
             ChatMemberKind::Member => {
                 self.can_promote()?;
                 self.promote().await.map_err(|_| "Failed to promote")?;
+                sleep(Duration::from_secs_f32(0.5)).await;
                 self.set_title(title)
                     .await
                     .map_err(|_| "Failed to set title")
