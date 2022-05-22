@@ -7,25 +7,24 @@ use std::{
     time::SystemTime,
 };
 
-use anyhow::Result;
+use color_eyre::{eyre::Context, Result};
 use figment::{providers::Env, Figment};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
-use tracing::{level_filters::LevelFilter, warn};
+use tracing::level_filters::LevelFilter;
 
 #[must_use]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase", tag = "mode")]
 pub enum BotMode {
-    Webhook,
+    Webhook { domain: String },
     Poll,
 }
 
 impl BotMode {
     #[must_use]
     pub const fn is_webhook(&self) -> bool {
-        matches!(self, Self::Webhook)
+        matches!(self, Self::Webhook { .. })
     }
 
     #[must_use]
@@ -49,15 +48,14 @@ mod default {
 }
 
 #[serde_as]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Config {
     #[serde_as(as = "DisplayFromStr")]
     #[serde(default = "default::log")]
     pub log: LevelFilter,
     pub token: String,
-    #[serde(default)]
+    #[serde(default, flatten)]
     pub mode: BotMode,
-    pub domain: Option<String>,
     pub debug_chat: Option<i64>,
 }
 
@@ -74,13 +72,13 @@ impl Config {
     /// Bad config will result in an `Err` being returned.
     ///
     /// # Errors
-    /// If any of the required environment variable is not set or not in proper format,
-    /// or the config is [not in good shape](#additional-check).
+    /// If any of the required environment variable is not set or not in proper
+    /// format, or the config is [not in good shape](#additional-check).
     pub fn from_env() -> Result<Self> {
         Figment::new()
             .merge(Env::prefixed("GOLDEN_AXE_"))
-            .extract::<Self>()?
-            .ensure_good()
+            .extract::<Self>()
+            .wrap_err("Failed to extract config from environment")
     }
 
     /// Get or initialize the config.
@@ -89,10 +87,8 @@ impl Config {
     /// Failed to [construct the config from env](#method.from_env).
     pub fn try_get<'a>() -> Result<&'a Self> {
         static CELL: SyncOnceCell<Config> = SyncOnceCell::new();
-        CELL.get_or_try_init(Self::from_env).map_err(|e| {
-            warn!("{}", e);
-            anyhow::anyhow!("Failed to initialize config")
-        })
+        CELL.get_or_try_init(Self::from_env)
+            .wrap_err("Failed to initialize config")
     }
 
     /// Get or initialize the config.
@@ -119,15 +115,15 @@ impl Config {
         })
     }
 
-    fn ensure_good(self) -> Result<Self> {
-        if self.mode.is_webhook() && self.domain.is_none() {
-            Err(anyhow::anyhow!(
-                "Cannot set bot mode to webhook when domain is not present"
-            ))
-        } else {
-            Ok(self)
-        }
-    }
+    // fn ensure_good(self) -> Result<Self> {
+    //     if self.mode.is_webhook() && self.domain.is_none() {
+    //         Err(eyre!(
+    //             "Cannot set bot mode to webhook when domain is not present"
+    //         ))
+    //     } else {
+    //         Ok(self)
+    //     }
+    // }
 }
 
 #[test]
@@ -144,8 +140,9 @@ fn test_config() {
             Config {
                 log: LevelFilter::DEBUG,
                 token: "token".to_string(),
-                mode: BotMode::Webhook,
-                domain: Some("domain".to_string()),
+                mode: BotMode::Webhook {
+                    domain: "domain".to_string()
+                },
                 debug_chat: Some(123),
             }
         );
@@ -156,7 +153,10 @@ fn test_config() {
 #[test]
 fn test_config_minimal() {
     figment::Jail::expect_with(|j| {
+        drop(tracing_subscriber::fmt().pretty().try_init());
+
         j.set_env("GOLDEN_AXE_TOKEN", "token");
+        j.set_env("GOLDEN_AXE_MODE", "poll");
 
         assert_eq!(
             Config::from_env().unwrap(),
@@ -164,7 +164,6 @@ fn test_config_minimal() {
                 log: LevelFilter::INFO,
                 token: "token".to_string(),
                 mode: BotMode::Poll,
-                domain: None,
                 debug_chat: None,
             }
         );

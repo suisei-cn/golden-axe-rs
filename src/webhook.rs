@@ -4,15 +4,15 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Result};
 use axum::{
     body::Body,
     extract::Extension,
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{any, post},
     Json, Router,
 };
+use color_eyre::{eyre::Context, Result};
 use teloxide::{
     dispatching::update_listeners::{self, StatefulListener},
     prelude::*,
@@ -33,15 +33,14 @@ use crate::{send_debug, BotType, Config};
 ///
 /// # Panics
 /// When domain are not parsable into Url
-pub async fn setup(bot: &BotType) -> Result<impl update_listeners::UpdateListener<Infallible>> {
+pub async fn setup(
+    bot: &BotType,
+    domain: &str,
+) -> Result<impl update_listeners::UpdateListener<Infallible>> {
     let config = Config::get();
     let path = config.run_hash();
 
-    let url = Url::parse(&format!(
-        "https://{}/{}",
-        config.domain.as_deref().unwrap(),
-        path
-    ))?;
+    let url = Url::parse(&format!("https://{}/{}", domain, path))?;
 
     let notify = format!("Webhook URL: {}", url);
     info!("{}", notify);
@@ -49,14 +48,14 @@ pub async fn setup(bot: &BotType) -> Result<impl update_listeners::UpdateListene
     bot.delete_webhook()
         .send()
         .await
-        .map_err(|_| anyhow!("Failed to delete webhook"))?;
+        .wrap_err("Failed to delete webhook")?;
 
     sleep(Duration::from_secs_f32(0.5)).await;
 
     bot.set_webhook(url)
         .send()
         .await
-        .map_err(|_| anyhow!("Failed to set webhook"))?;
+        .wrap_err("Failed to set webhook")?;
 
     send_debug(&notify);
 
@@ -81,9 +80,9 @@ pub async fn setup(bot: &BotType) -> Result<impl update_listeners::UpdateListene
 fn handle_update(
     Json(message): Json<Update>,
     Extension(tx): Extension<UnboundedSender<Result<Update, Infallible>>>,
-) -> Ready<impl IntoResponse> {
+) -> Ready<Response> {
     info!("New tg message");
     tx.send(Ok(message))
         .expect("Cannot send an incoming update from the webhook");
-    ready((StatusCode::OK, "OK"))
+    ready((StatusCode::OK, "OK").into_response())
 }

@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use color_eyre::{
+    eyre::{eyre, Context},
+    Result,
+};
+use tap::TapFallible;
 use teloxide::{
     prelude::*,
     types::{Administrator, ChatMember, ChatMemberKind, User},
@@ -30,7 +34,7 @@ impl<'a> InChatCtx<'a> {
     ///
     /// [`UpdateWithCtx`]: teloxide::prelude::UpdateWithCtx
     pub async fn from_ctx(ctx: &'a Ctx) -> Result<InChatCtx<'a>> {
-        let sender = ctx.update.from().ok_or_else(|| anyhow!("No sender"))?;
+        let sender = ctx.update.from().ok_or_else(|| eyre!("No sender"))?;
         let chat_id = ctx.chat_id();
         let bot = &ctx.requester;
 
@@ -49,27 +53,29 @@ impl<'a> InChatCtx<'a> {
     }
 
     /// # Errors
-    /// Failed when failed to promote member. This method does not assure that the bot is privileged enough to
-    /// promote the member, so it should be checked by the caller.
+    /// Failed when failed to promote member. This method does not assure that
+    /// the bot is privileged enough to promote the member, so it should be
+    /// checked by the caller.
     pub async fn promote(&self) -> Result<()> {
         self.bot
             .promote_chat_member(self.chat_id, self.tx.user.id)
             .can_invite_users(true)
             .send()
             .await
-            .map_err(|e| anyhow!("Promote member error: {}", e))?;
+            .wrap_err("Promote member error")?;
         Ok(())
     }
 
     /// # Errors
-    /// Failed when failed to demote the member. This method does not assure that the bot is privileged enough to
-    /// promote the member, so it should be checked by the caller.
+    /// Failed when failed to demote the member. This method does not assure
+    /// that the bot is privileged enough to promote the member, so it
+    /// should be checked by the caller.
     pub async fn demote(&self) -> Result<()> {
         self.bot
             .promote_chat_member(self.chat_id, self.tx.user.id)
             .send()
             .await
-            .map_err(|e| anyhow!("Demote member error: {}", e))?;
+            .wrap_err("Demote member error")?;
         Ok(())
     }
 
@@ -77,10 +83,10 @@ impl<'a> InChatCtx<'a> {
         self.bot
             .set_chat_administrator_custom_title(self.chat_id, self.sender.id, title)
             .await
-            .map_err(|error| {
+            .tap_err(|error| {
                 warn!(%error);
-                "Failed to set title"
-            })?;
+            })
+            .map_err(|_| "Failed to set title")?;
         Ok(())
     }
 
@@ -139,7 +145,8 @@ impl<'a> InChatCtx<'a> {
     }
 
     /// Ensure that the sender is privileged enough to promote the user.
-    /// This means that the user [can be edited](#method.can_edit) and the bot has the `can_promote_members` privilege
+    /// This means that the user [can be edited](#method.can_edit) and the bot
+    /// has the `can_promote_members` privilege
     ///
     /// # Errors
     /// Failed when not privileged enough.

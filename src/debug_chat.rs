@@ -40,7 +40,8 @@ pub fn init<'a>(bot: BotType) -> Option<&'a UnboundedSender<String>> {
         .as_ref()
 }
 
-/// Send a debug message to the debug channel if `debug_chat` is set or or log it otherwise
+/// Send a debug message to the debug channel if `debug_chat` is set or or log
+/// it otherwise
 ///
 /// # Panics
 ///

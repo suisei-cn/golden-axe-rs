@@ -1,7 +1,9 @@
-use anyhow::Result;
-use teloxide::prelude::*;
-use teloxide::types::{ChatKind, ChatPublic, Message, PublicChatKind, User};
-use teloxide::utils::command::BotCommand;
+use color_eyre::Result;
+use teloxide::{
+    prelude::*,
+    types::{ChatKind, ChatPublic, Message, PublicChatKind, User},
+    utils::command::BotCommand,
+};
 use tracing::info;
 
 use crate::{BotType, InChatCtx};

@@ -9,7 +9,7 @@ mod_use![command, debug_chat, ctx, webhook, config];
 
 use std::{lazy::SyncOnceCell, time::Duration};
 
-use anyhow::Result;
+use color_eyre::{eyre::ContextCompat, Result};
 use mod_use::mod_use;
 use teloxide::{adaptors::DefaultParseMode, prelude::*, types::ParseMode};
 use tokio::{select, time::sleep};
@@ -77,7 +77,7 @@ async fn run(bot: BotType) -> Result<()> {
     let username = me
         .username
         .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("Username of bot not set"))?;
+        .wrap_err_with(|| "Username of bot not set")?;
 
     BOT_INFO.set((me.id, username.to_owned())).unwrap();
 
@@ -90,9 +90,9 @@ async fn run(bot: BotType) -> Result<()> {
     ));
 
     match Config::get().mode {
-        BotMode::Webhook => {
+        BotMode::Webhook { ref domain } => {
             info!("Webhook mode");
-            let listener = webhook::setup(&bot).await?;
+            let listener = webhook::setup(&bot, domain).await?;
             teloxide::commands_repl_with_listener(
                 bot,
                 username.to_owned(),
