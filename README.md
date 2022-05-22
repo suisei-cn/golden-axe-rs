@@ -6,18 +6,58 @@ Bot used in Suisei-CN related TG groups (No-nonsense and OT). Main purpose is to
 
 Configurations are passin in via environment variable. For better debugging experience, `.env` file is used.
 
-### Variables
+### `GOLDEN_AXE_LOG`
 
-- `TELOXIDE_TOKEN` (Required) - Telegram bot token. This should be kept confidential.
+Log level, case insensitive
 
-- `BOT_MODE` (Default: `POLL`) - Telegram bot get update mode, case insensitive. Available values: `poll`, `webhook`
+**Type**: `String`
 
-- `DOMAIN` - When using `webhook`, this is required to setup the webhook endpoint.
+**Required**: `true`
 
-- `DEBUG_GROUP_ID` - Chat id of debugging telegram group. This should be kept confidential.
+**Possible values**: `0` = `OFF`, `1` = `ERROR`, `2` = `WARN`, `3` = `INFO`, `4` = `DEBUG`, `5` = `TRACE`, `error`, `warn`, `info`, `debug`, `trace`, `off`
 
-- `RUST_LOG` (Default: `INFO`) - Log level, case insensitive. Available values: `0` = OFF, `1` = ERROR, `2` = WARN, `3` = INFO, `4` = DEBUG, `5` = TRACE, `error`, `warn`, `info`, `debug`, `trace`, `off`.
+**Default value**: `info`
+
+### `GOLDEN_AXE_TOKEN`
+
+Telegram bot token. This should be kept confidential.
+
+**Type**: `String`
+
+**Required**: `true`
+
+### `GOLDEN_AXE_MODE`
+
+Mode of telegram bot to retrive update
+
+**Type**: `String`
+
+**Required**: `true`
+
+**Possible values**: `poll`, `webhook`
+
+### `GOLDEN_AXE_DOMAIN`
+
+Domain of webhook
+
+**Type**: `String`
+
+**Required**: `true` when `GOLDEN_AXE_MODE` is `webhook`, otherwise `false`
+
+### `GOLDEN_AXE_DEBUG_CHAT`
+
+Chat id of debugging telegram group. This should be kept confidential.
+
+**Type**: `i64`
+
+**Required**: `false`
 
 ## Develop
 
-Use `cargo run` directly. `.env` is optional but may be useful.
+- `nightly` version of rustc is required.
+- Use `cargo run` to start in debug mode directly.
+- `.env` is optional but may be useful for debugging.
+
+## Deploy
+
+The bot is being deployed onto `fly.io` on each push to master
