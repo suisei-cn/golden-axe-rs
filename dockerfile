@@ -8,12 +8,13 @@ RUN cargo vendor > .cargo/config
 
 COPY ./src src
 RUN cargo build --release
-RUN cargo install --path . --verbose
 
 # -----------------
 # Final Stage
 # -----------------
 
-FROM fedora:latest
+FROM fedora:34
 
-COPY --from=builder /usr/local/cargo/bin/golden-axe /bin
+WORKDIR /root
+COPY --from=builder /usr/src/app/target/release/golden-axe ./
+CMD [ "./golden-axe" ]

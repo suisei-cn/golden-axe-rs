@@ -10,9 +10,6 @@ processes    = []
 DOMAIN = "golden-axe.fly.dev"
 ENV    = "Production"
 
-[experimental]
-cmd = "golden-axe"
-
 [[services]]
 internal_port = 8080
 protocol      = "tcp"

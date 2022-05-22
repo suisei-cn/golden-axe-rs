@@ -39,7 +39,7 @@ pub async fn send_to_debug_channel(bot: impl Requester, text: impl ToString) -> 
     Ok(())
 }
 
-pub fn get_run_hash() -> String {
+pub fn gen_run_hash() -> String {
     let mut hasher = DefaultHasher::new();
     env::var("TELOXIDE_TOKEN")
         .expect("Env variable `TELOXIDE_TOKEN` should be set")

@@ -1,4 +1,4 @@
-use std::{convert::Infallible, env};
+use std::{convert::Infallible, env, time::Duration};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -14,14 +14,17 @@ use teloxide::{
     prelude::*,
     types::Update,
 };
-use tokio::sync::mpsc::{self, UnboundedSender};
+use tokio::{
+    sync::mpsc::{unbounded_channel, UnboundedSender},
+    time::sleep,
+};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::info;
 use url::Url;
 
 use crate::{send_to_debug_channel, RUN_HASH};
 
-pub async fn webhook(
+pub async fn setup_webhook(
     bot: impl Requester,
 ) -> Result<impl update_listeners::UpdateListener<Infallible>> {
     let path = RUN_HASH.get().unwrap();
@@ -29,8 +32,14 @@ pub async fn webhook(
     let url = Url::parse(&format!("https://{}/{}", &env::var("DOMAIN")?, path))?;
 
     let notify = format!("Webhook URL: {}", url);
-
     info!("{}", notify);
+
+    bot.delete_webhook()
+        .send()
+        .await
+        .map_err(|_| anyhow!("Failed to delete webhook"))?;
+
+    sleep(Duration::from_secs_f32(0.5)).await;
 
     bot.set_webhook(url)
         .send()
@@ -39,7 +48,7 @@ pub async fn webhook(
 
     send_to_debug_channel(bot, notify).await?;
 
-    let (tx, rx) = mpsc::unbounded_channel::<Result<Update, Infallible>>();
+    let (tx, rx) = unbounded_channel::<Result<Update, Infallible>>();
 
     let app = Router::<Body>::new()
         .route(&format!("/{}", path), post(update))
@@ -58,6 +67,7 @@ async fn update(
     Json(message): Json<Update>,
     Extension(tx): Extension<UnboundedSender<Result<Update, Infallible>>>,
 ) -> impl IntoResponse {
+    info!("New tg message");
     tx.send(Ok(message))
         .expect("Cannot send an incoming update from the webhook");
     (StatusCode::OK, "OK")

@@ -46,10 +46,14 @@ async fn main() -> Result<()> {
 async fn run(bot: &BotType) -> Result<()> {
     init_debug_channel();
 
-    let _ = RUN_HASH.set(get_run_hash());
+    let _ = RUN_HASH.set(gen_run_hash());
 
-    let username = bot.get_me().await?.user;
-    info!(?username, "Bot logged in");
+    let user = bot.get_me().await?.user;
+    info!(?user, "Bot logged in");
+    let username = user
+        .username
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("Username of bot not set"))?;
     bot.set_my_commands(COMMANDS.iter().map(ConstBotCommand::into_teloxide))
         .await?;
 
@@ -62,18 +66,18 @@ async fn run(bot: &BotType) -> Result<()> {
     match env::var("ENV").map(|x| x.to_lowercase()) {
         Ok(content) if content == "production" => {
             info!("Webhook mode");
-            let webhook = webhook(&bot).await?;
+            let listener = setup_webhook(&bot).await?;
             teloxide::commands_repl_with_listener(
                 bot.clone(),
-                username.full_name(),
+                username.to_owned(),
                 handle_command,
-                webhook,
+                listener,
             )
             .await
         }
         _ => {
             info!("Poll mode");
-            teloxide::commands_repl(bot.clone(), username.full_name(), handle_command).await
+            teloxide::commands_repl(bot.clone(), username.to_owned(), handle_command).await
         }
     }
 
