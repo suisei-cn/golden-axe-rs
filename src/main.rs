@@ -1,9 +1,9 @@
+#![feature(let_chains)]
+#![feature(once_cell)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
 #![warn(clippy::all)]
 #![allow(clippy::module_name_repetitions)]
-#![feature(let_chains)]
-#![feature(once_cell)]
 
 mod_use![command, utils, ctx, webhook, config];
 
@@ -17,6 +17,7 @@ use tracing::info;
 
 use crate::command::{handle_command, ConstBotCommand, COMMANDS};
 
+// (user_id, username)
 pub static BOT_INFO: SyncOnceCell<(i64, String)> = SyncOnceCell::new();
 
 type BotType = AutoSend<DefaultParseMode<Bot>>;
@@ -24,7 +25,7 @@ type BotType = AutoSend<DefaultParseMode<Bot>>;
 #[tokio::main]
 #[allow(clippy::redundant_pub_crate)]
 async fn main() -> Result<()> {
-    dotenv::dotenv()?;
+    drop(dotenv::dotenv());
     tracing_subscriber::fmt()
         .with_max_level(Config::get().log)
         .init();

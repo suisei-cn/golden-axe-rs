@@ -1,6 +1,6 @@
 FROM rustlang/rust:nightly AS builder
 
-WORKDIR /usr/src/app
+WORKDIR /prod
 COPY Cargo.lock .
 COPY Cargo.toml .
 RUN mkdir .cargo
@@ -13,8 +13,6 @@ RUN cargo build --release
 # Final Stage
 # -----------------
 
-FROM fedora:34
+FROM fedora:34 AS runner
 
-WORKDIR /root
-COPY --from=builder /usr/src/app/target/release/golden-axe ./
-CMD [ "./golden-axe" ]
+COPY --from=builder /prod/target/release/golden-axe /bin

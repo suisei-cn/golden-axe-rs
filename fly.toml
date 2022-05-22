@@ -10,6 +10,9 @@ processes    = []
 GOLDEN_AXE_MODE   = "webhook"
 GOLDEN_AXE_DOMAIN = "golden-axe.fly.dev"
 
+[experimental]
+cmd = "golden-axe"
+
 [[services]]
 internal_port = 8080
 protocol      = "tcp"
@@ -30,8 +33,8 @@ port     = 443
 [[services.http_checks]]
 path            = "/health"
 method          = "get"
-timeout         = 2000
-interval        = 10000
+timeout         = "2000"
+interval        = "10000"
 protocol        = "http"
 grace_period    = "5s"
 tls_skip_verify = false
