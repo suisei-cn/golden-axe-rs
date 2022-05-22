@@ -9,11 +9,13 @@ use anyhow::Result;
 use mod_use::mod_use;
 use teloxide::{adaptors::DefaultParseMode, prelude::*, types::ParseMode};
 use tokio::select;
-use tracing::{info, warn};
+use tracing::{info, metadata::LevelFilter, warn};
 
 use crate::command::{handle_command, ConstBotCommand, COMMANDS};
 
 pub static RUN_HASH: SyncOnceCell<String> = SyncOnceCell::new();
+pub static BOT_INFO: SyncOnceCell<(i64, String)> = SyncOnceCell::new();
+
 type BotType = AutoSend<DefaultParseMode<Bot>>;
 
 #[tokio::main]
@@ -21,10 +23,8 @@ async fn main() -> Result<()> {
     if let Err(e) = dotenv::dotenv() {
         warn!("Dotenv failed: {}", e)
     }
-    if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "INFO")
-    };
-    tracing_subscriber::fmt().init();
+    let level: LevelFilter = env::var("RUST_LOG").as_deref().unwrap_or("INFO").parse()?;
+    tracing_subscriber::fmt().with_max_level(level).init();
     info!("Start running");
 
     let bot = Bot::from_env().parse_mode(ParseMode::Html).auto_send();
@@ -46,14 +46,19 @@ async fn main() -> Result<()> {
 async fn run(bot: &BotType) -> Result<()> {
     init_debug_channel();
 
-    let _ = RUN_HASH.set(gen_run_hash());
+    RUN_HASH.set(gen_run_hash()).unwrap();
 
     let user = bot.get_me().await?.user;
+
     info!(?user, "Bot logged in");
+
     let username = user
         .username
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Username of bot not set"))?;
+
+    BOT_INFO.set((user.id, username.to_owned())).unwrap();
+
     bot.set_my_commands(COMMANDS.iter().map(ConstBotCommand::into_teloxide))
         .await?;
 
@@ -63,8 +68,8 @@ async fn run(bot: &BotType) -> Result<()> {
     )
     .await?;
 
-    match env::var("ENV").map(|x| x.to_lowercase()) {
-        Ok(content) if content == "production" => {
+    match env::var("BOT_MODE").map(|x| x.to_lowercase()) {
+        Ok(content) if content.eq_ignore_ascii_case("webhook") => {
             info!("Webhook mode");
             let listener = setup_webhook(&bot).await?;
             teloxide::commands_repl_with_listener(

@@ -5,16 +5,16 @@ use teloxide::{
     prelude::*,
     types::{Administrator, ChatMember, ChatMemberKind, User},
 };
-use tokio::time::sleep;
+use tokio::{time::sleep, try_join};
 use tracing::warn;
 
-use crate::{BotType, Ctx};
+use crate::{BotType, Ctx, BOT_INFO};
 
 pub struct InChatCtx<'a> {
     pub bot: &'a BotType,
     pub sender: &'a User,
     pub chat_id: i64,
-    // Me in Group (Received the message)
+    // The bot in Group (Received the message)
     pub rx: ChatMember,
     // Sender in group (Sent the message)
     pub tx: ChatMember,
@@ -25,10 +25,12 @@ impl<'a> InChatCtx<'a> {
         let sender = ctx.update.from().ok_or_else(|| anyhow!("No sender"))?;
         let chat_id = ctx.chat_id();
         let bot = &ctx.requester;
-        let rx = bot
-            .get_chat_member(chat_id, bot.get_me().await?.user.id)
-            .await?;
-        let tx = bot.get_chat_member(chat_id, sender.id).await?;
+
+        let (rx, tx) = try_join!(
+            bot.get_chat_member(chat_id, BOT_INFO.get().unwrap().0),
+            bot.get_chat_member(chat_id, sender.id)
+        )?;
+
         Ok(Self {
             bot,
             sender,
@@ -57,35 +59,35 @@ impl<'a> InChatCtx<'a> {
         Ok(())
     }
 
-    async fn set_title(&self, title: impl Into<String> + Send) -> Result<()> {
+    async fn set_title(&self, title: impl Into<String> + Send) -> Result<(), &str> {
         self.bot
             .set_chat_administrator_custom_title(self.chat_id, self.sender.id, title)
-            .await?;
+            .await
+            .map_err(|error| {
+                warn!(%error);
+                "Failed to set title"
+            })?;
         Ok(())
     }
 
     pub async fn change_title(&self, title: impl Into<String> + Send) -> Result<(), &str> {
+        use ChatMemberKind::*;
         match self.tx.kind {
-            ChatMemberKind::Administrator(_) => {
+            Administrator(_) => {
                 self.can_edit()?;
-                self.set_title(title).await.map_err(|error| {
-                    warn!(%error);
-                    "Failed to set title"
-                })
+                self.set_title(title).await
             }
-            ChatMemberKind::Member => {
+            Member => {
                 self.can_promote()?;
                 self.promote().await.map_err(|error| {
                     warn!(%error);
-                    "Failed to set title"
+                    "Failed to promote"
                 })?;
                 sleep(Duration::from_secs_f32(0.5)).await;
-                self.set_title(title).await.map_err(|error| {
-                    warn!(%error);
-                    "Failed to set title"
-                })
+                self.set_title(title).await
             }
-            _ => Err("I can't edit you because of your status"),
+            Owner(_) => Err("Cannot modify owner"),
+            _ => Err("I can't edit you because of your status (Restricted, Left or Banned)"),
         }
     }
 
@@ -103,7 +105,7 @@ impl<'a> InChatCtx<'a> {
                 ChatMemberKind::Member => Ok(()),
                 _ => Err("I can't edit you because of your status"),
             },
-            _ => Err("I'm not an admin, please contact admin"),
+            _ => Err("I'm not an admin, please promote me with promote privilege first"),
         }
     }
 
