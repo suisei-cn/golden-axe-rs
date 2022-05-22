@@ -13,7 +13,10 @@ use anyhow::Result;
 use mod_use::mod_use;
 use teloxide::{adaptors::DefaultParseMode, prelude::*, types::ParseMode};
 use tokio::select;
-use tracing::info;
+use tracing::{info, level_filters::LevelFilter};
+use tracing_subscriber::{
+    filter::Targets, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
+};
 
 use crate::command::{handle_command, ConstBotCommand, COMMANDS};
 
@@ -26,9 +29,15 @@ type BotType = AutoSend<DefaultParseMode<Bot>>;
 #[allow(clippy::redundant_pub_crate)]
 async fn main() -> Result<()> {
     drop(dotenv::dotenv());
-    tracing_subscriber::fmt()
-        .with_max_level(Config::get().log)
+
+    tracing_subscriber::registry()
+        .with(
+            Targets::new()
+                .with_default(Config::get().log)
+                .with_target("hyper::proto", LevelFilter::ERROR),
+        )
         .init();
+
     info!("Start running");
 
     let bot = Bot::from_env().parse_mode(ParseMode::Html).auto_send();
