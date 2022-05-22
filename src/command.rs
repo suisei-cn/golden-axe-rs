@@ -2,9 +2,9 @@ use anyhow::Result;
 use teloxide::prelude::*;
 use teloxide::types::{ChatKind, ChatPublic, Message, PublicChatKind, User};
 use teloxide::utils::command::BotCommand;
-use tracing::{error, info};
+use tracing::info;
 
-use crate::{send_to_debug_channel, BotType, InChatCtx};
+use crate::{BotType, InChatCtx};
 
 pub type Ctx = UpdateWithCx<BotType, Message>;
 
@@ -51,11 +51,10 @@ pub enum Command {
 
 macro_rules! command {
     ($cx:ident, $handler:expr) => {
-        let bot = $cx.requester.clone();
         if let Err(e) = $handler {
-            error!("{}", e);
+            ::tracing::warn!("{}", e);
             $cx.reply_to("Internal Error").await?;
-            send_to_debug_channel(&bot, e).await?;
+            $crate::debug(&e);
         }
     };
 }

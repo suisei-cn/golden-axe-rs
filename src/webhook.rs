@@ -1,4 +1,8 @@
-use std::{convert::Infallible, env, time::Duration};
+use std::{
+    convert::Infallible,
+    future::{ready, Ready},
+    time::Duration,
+};
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -22,14 +26,22 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::info;
 use url::Url;
 
-use crate::{send_to_debug_channel, RUN_HASH};
+use crate::{debug, BotType, Config};
 
-pub async fn setup_webhook(
-    bot: impl Requester,
-) -> Result<impl update_listeners::UpdateListener<Infallible>> {
-    let path = RUN_HASH.get().unwrap();
+/// # Errors
+/// Failed when unable to remove/add webhook
+///
+/// # Panics
+/// When domain are not parsable into Url
+pub async fn setup(bot: &BotType) -> Result<impl update_listeners::UpdateListener<Infallible>> {
+    let config = Config::get();
+    let path = config.run_hash();
 
-    let url = Url::parse(&format!("https://{}/{}", &env::var("DOMAIN")?, path))?;
+    let url = Url::parse(&format!(
+        "https://{}/{}",
+        config.domain.as_deref().unwrap(),
+        path
+    ))?;
 
     let notify = format!("Webhook URL: {}", url);
     info!("{}", notify);
@@ -46,16 +58,19 @@ pub async fn setup_webhook(
         .await
         .map_err(|_| anyhow!("Failed to set webhook"))?;
 
-    send_to_debug_channel(bot, notify).await?;
+    debug(&notify);
 
     let (tx, rx) = unbounded_channel::<Result<Update, Infallible>>();
 
     let app = Router::<Body>::new()
-        .route(&format!("/{}", path), post(update))
+        .route(&format!("/{}", path), post(handle_update))
         .layer(AddExtensionLayer::new(tx))
-        .route("/health", any(|| async { "OK" }));
+        .route("/health", any(|| async { StatusCode::NO_CONTENT }));
 
-    tokio::spawn(axum::Server::bind(&"0.0.0.0:8080".parse()?).serve(app.into_make_service()));
+    tokio::spawn(
+        axum::Server::bind(&"0.0.0.0:8080".parse().unwrap()).serve(app.into_make_service()),
+    );
+
     let stream = UnboundedReceiverStream::new(rx);
 
     Ok(StatefulListener::from_stream_without_graceful_shutdown(
@@ -63,12 +78,12 @@ pub async fn setup_webhook(
     ))
 }
 
-async fn update(
+fn handle_update(
     Json(message): Json<Update>,
     Extension(tx): Extension<UnboundedSender<Result<Update, Infallible>>>,
-) -> impl IntoResponse {
+) -> Ready<impl IntoResponse> {
     info!("New tg message");
     tx.send(Ok(message))
         .expect("Cannot send an incoming update from the webhook");
-    (StatusCode::OK, "OK")
+    ready((StatusCode::OK, "OK"))
 }

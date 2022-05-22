@@ -1,52 +1,52 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    env,
-    hash::{Hash, Hasher},
-    lazy::SyncOnceCell,
-    time::SystemTime,
-};
+use std::lazy::SyncOnceCell;
 
-use anyhow::{anyhow, Result};
 use teloxide::{
     prelude::{Request, Requester},
     types::ChatId,
 };
-use tracing::warn;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tracing::{info, warn};
 
-pub(crate) static DEBUG_CHANNEL: SyncOnceCell<i64> = SyncOnceCell::new();
+use crate::{BotType, Config};
 
-pub fn init_debug_channel() {
-    if let Err(e) = DEBUG_CHANNEL.get_or_try_init(|| {
-        env::var("DEBUG_GROUP_ID")
-            .map_err(|_| {
-                anyhow!("`DEBUG_GROUP_ID` not set, no error message will be sent to dev group")
+static DEBUG_CHANNEL: SyncOnceCell<Option<UnboundedSender<String>>> = SyncOnceCell::new();
+
+#[must_use]
+pub fn init_debug_channel<'a>(bot: BotType) -> Option<&'a UnboundedSender<String>> {
+    DEBUG_CHANNEL
+        .get_or_init(|| {
+            Config::get().debug_chat.map(|id| {
+                let (tx, mut rx) = unbounded_channel();
+
+                tokio::spawn(async move {
+                    while let Some(msg) = rx.recv().await {
+                        if let Err(e) = bot.send_message(ChatId::Id(id), msg).send().await {
+                            warn!("Failed to send to debug channel: {:?}", e);
+                        }
+                    }
+                });
+
+                tx
             })
-            .and_then(|x| {
-                x.parse()
-                    .map_err(|_| anyhow!("Invalid `DEBUG_GROUP_ID`, should be an `i64`"))
-            })
-    }) {
-        warn!("{}", e)
-    }
-}
-pub async fn send_to_debug_channel(bot: impl Requester, text: impl ToString) -> Result<()> {
-    if let Some(channel) = DEBUG_CHANNEL.get() {
-        bot.send_message(ChatId::Id(*channel), text.to_string())
-            .send()
-            .await
-            .map_err(|e| anyhow!("Failed to send to debug channel: {:?}", e))?;
-    }
-    Ok(())
+        })
+        .as_ref()
 }
 
-pub fn gen_run_hash() -> String {
-    let mut hasher = DefaultHasher::new();
-    env::var("TELOXIDE_TOKEN")
-        .expect("Env variable `TELOXIDE_TOKEN` should be set")
-        .hash(&mut hasher);
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("Wrong system time config")
-        .hash(&mut hasher);
-    format!("{:X}", hasher.finish())
+/// Send a debug message to the debug channel if `debug_chat` is set or or log it otherwise
+///
+/// # Panics
+///
+/// When debug channel is not initialized
+pub fn debug(content: &impl ToString) {
+    match DEBUG_CHANNEL.get() {
+        Some(Some(tx)) => tx
+            .send(content.to_string())
+            .expect("Background debug channel closed"),
+        Some(None) => {
+            info!("{}", content.to_string());
+        }
+        None => {
+            panic!("Background debug channel is not initialized");
+        }
+    }
 }

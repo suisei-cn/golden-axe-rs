@@ -21,13 +21,21 @@ pub struct InChatCtx<'a> {
 }
 
 impl<'a> InChatCtx<'a> {
+    /// Initialize in chat context from [`UpdateWithCtx`]
+    /// # Errors
+    /// Failed when no sender
+    ///
+    /// # Panics
+    /// When bot info is not initialized
+    ///
+    /// [`UpdateWithCtx`]: teloxide::prelude::UpdateWithCtx
     pub async fn from_ctx(ctx: &'a Ctx) -> Result<InChatCtx<'a>> {
         let sender = ctx.update.from().ok_or_else(|| anyhow!("No sender"))?;
         let chat_id = ctx.chat_id();
         let bot = &ctx.requester;
 
         let (rx, tx) = try_join!(
-            bot.get_chat_member(chat_id, BOT_INFO.get().unwrap().0),
+            bot.get_chat_member(chat_id, BOT_INFO.get().expect("Bot info not initialized").0),
             bot.get_chat_member(chat_id, sender.id)
         )?;
 
@@ -40,6 +48,9 @@ impl<'a> InChatCtx<'a> {
         })
     }
 
+    /// # Errors
+    /// Failed when failed to promote member. This method does not assure that the bot is privileged enough to
+    /// promote the member, so it should be checked by the caller.
     pub async fn promote(&self) -> Result<()> {
         self.bot
             .promote_chat_member(self.chat_id, self.tx.user.id)
@@ -50,6 +61,9 @@ impl<'a> InChatCtx<'a> {
         Ok(())
     }
 
+    /// # Errors
+    /// Failed when failed to demote the member. This method does not assure that the bot is privileged enough to
+    /// promote the member, so it should be checked by the caller.
     pub async fn demote(&self) -> Result<()> {
         self.bot
             .promote_chat_member(self.chat_id, self.tx.user.id)
@@ -70,7 +84,13 @@ impl<'a> InChatCtx<'a> {
         Ok(())
     }
 
+    /// Change title to `title` for the sender.
+    ///
+    /// # Errors
+    ///
+    /// Failed when not privileged enough, or failed to set title.
     pub async fn change_title(&self, title: impl Into<String> + Send) -> Result<(), &str> {
+        #[allow(clippy::enum_glob_use)]
         use ChatMemberKind::*;
         match self.tx.kind {
             Administrator(_) => {
@@ -91,7 +111,16 @@ impl<'a> InChatCtx<'a> {
         }
     }
 
-    pub fn can_edit(&self) -> Result<(), &str> {
+    /// Ensure that the sender is privileged enough to edit the user.
+    ///
+    /// This means:
+    /// - The bot is the owner of the chat (ultimate privilege)
+    /// - The sender an admin promoted by this bot
+    /// - The sender is an user that is going to be promoted
+    ///
+    /// # Errors
+    /// Failed when not privileged enough.
+    pub const fn can_edit(&self) -> Result<(), &str> {
         match self.rx.kind {
             ChatMemberKind::Owner(_) => Ok(()),
             ChatMemberKind::Administrator(_) => match self.tx.kind {
@@ -109,6 +138,11 @@ impl<'a> InChatCtx<'a> {
         }
     }
 
+    /// Ensure that the sender is privileged enough to promote the user.
+    /// This means that the user [can be edited](#method.can_edit) and the bot has the `can_promote_members` privilege
+    ///
+    /// # Errors
+    /// Failed when not privileged enough.
     pub fn can_promote(&self) -> Result<(), &str> {
         self.can_edit().and_then(|_| {
             if self.rx.kind.can_promote_members() {
