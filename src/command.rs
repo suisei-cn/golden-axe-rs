@@ -54,7 +54,7 @@ macro_rules! command {
         if let Err(e) = $handler {
             ::tracing::warn!("{}", e);
             $cx.reply_to("Internal Error").await?;
-            $crate::debug(&e);
+            $crate::send_debug(&e);
         }
     };
 }

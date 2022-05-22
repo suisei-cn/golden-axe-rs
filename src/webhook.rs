@@ -26,7 +26,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::info;
 use url::Url;
 
-use crate::{debug, BotType, Config};
+use crate::{send_debug, BotType, Config};
 
 /// # Errors
 /// Failed when unable to remove/add webhook
@@ -58,7 +58,7 @@ pub async fn setup(bot: &BotType) -> Result<impl update_listeners::UpdateListene
         .await
         .map_err(|_| anyhow!("Failed to set webhook"))?;
 
-    debug(&notify);
+    send_debug(&notify);
 
     let (tx, rx) = unbounded_channel::<Result<Update, Infallible>>();
 

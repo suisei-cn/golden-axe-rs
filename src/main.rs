@@ -5,14 +5,14 @@
 #![warn(clippy::all)]
 #![allow(clippy::module_name_repetitions)]
 
-mod_use![command, utils, ctx, webhook, config];
+mod_use![command, debug_chat, ctx, webhook, config];
 
-use std::lazy::SyncOnceCell;
+use std::{lazy::SyncOnceCell, time::Duration};
 
 use anyhow::Result;
 use mod_use::mod_use;
 use teloxide::{adaptors::DefaultParseMode, prelude::*, types::ParseMode};
-use tokio::select;
+use tokio::{select, time::sleep};
 use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::{
     filter::Targets, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
@@ -30,35 +30,46 @@ type BotType = AutoSend<DefaultParseMode<Bot>>;
 async fn main() -> Result<()> {
     drop(dotenv::dotenv());
 
-    tracing_subscriber::registry()
+    let conf = Config::get();
+    println!("{:?}", conf);
+
+    tracing_subscriber::fmt()
+        .with_max_level(conf.log)
+        .without_time()
+        .compact()
+        .finish()
         .with(
             Targets::new()
-                .with_default(Config::get().log)
-                .with_target("hyper::proto", LevelFilter::ERROR),
+                .with_target("hyper::proto", LevelFilter::ERROR)
+                .with_target("golden_axe", conf.log)
+                .with_default(conf.log),
         )
         .init();
 
     info!("Start running");
 
-    let bot = Bot::from_env().parse_mode(ParseMode::Html).auto_send();
+    let bot = Bot::new(&conf.token)
+        .parse_mode(ParseMode::Html)
+        .auto_send();
+
+    let _ = init(bot.clone());
 
     select! {
         _ = run(bot) => {},
         _ = tokio::signal::ctrl_c() => {}
     }
 
-    debug(&format!(
-        "Golden Axe <b>Offline</b> (#{})",
-        Config::get().run_hash()
-    ));
+    info!("Bot stopped, wrapping up");
+
+    send_debug(&format!("Golden Axe <b>Offline</b> (#{})", conf.run_hash()));
+
+    sleep(Duration::from_secs(1)).await;
 
     Ok(())
 }
 
 #[allow(clippy::future_not_send)]
 async fn run(bot: BotType) -> Result<()> {
-    let _ = init_debug_channel(bot.clone());
-
     let me = bot.get_me().await?.user;
 
     info!(?me, "Bot logged in");
@@ -73,7 +84,7 @@ async fn run(bot: BotType) -> Result<()> {
     bot.set_my_commands(COMMANDS.iter().map(ConstBotCommand::into_teloxide))
         .await?;
 
-    debug(&format!(
+    send_debug(&format!(
         "Golden Axe <b>Online</b> (#{})",
         Config::get().run_hash()
     ));

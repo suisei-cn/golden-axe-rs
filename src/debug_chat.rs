@@ -12,10 +12,10 @@ use crate::{BotType, Config};
 static DEBUG_CHANNEL: SyncOnceCell<Option<UnboundedSender<String>>> = SyncOnceCell::new();
 
 #[must_use]
-pub fn init_debug_channel<'a>(bot: BotType) -> Option<&'a UnboundedSender<String>> {
+pub fn init<'a>(bot: BotType) -> Option<&'a UnboundedSender<String>> {
     DEBUG_CHANNEL
         .get_or_init(|| {
-            Config::get().debug_chat.map(|id| {
+            match Config::get().debug_chat.map(|id| {
                 let (tx, mut rx) = unbounded_channel();
 
                 tokio::spawn(async move {
@@ -26,8 +26,16 @@ pub fn init_debug_channel<'a>(bot: BotType) -> Option<&'a UnboundedSender<String
                     }
                 });
 
+                info!("Debug channel worker initialized");
+
                 tx
-            })
+            }) {
+                Some(tx) => Some(tx),
+                None => {
+                    warn!("`debug_chat` not present, debug messages will be printed to log");
+                    None
+                }
+            }
         })
         .as_ref()
 }
@@ -37,7 +45,7 @@ pub fn init_debug_channel<'a>(bot: BotType) -> Option<&'a UnboundedSender<String
 /// # Panics
 ///
 /// When debug channel is not initialized
-pub fn debug(content: &impl ToString) {
+pub fn send_debug(content: &impl ToString) {
     match DEBUG_CHANNEL.get() {
         Some(Some(tx)) => tx
             .send(content.to_string())
@@ -46,7 +54,7 @@ pub fn debug(content: &impl ToString) {
             info!("{}", content.to_string());
         }
         None => {
-            panic!("Background debug channel is not initialized");
+            panic!("Background debug channel worker is not initialized");
         }
     }
 }
