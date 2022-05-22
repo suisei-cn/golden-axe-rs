@@ -11,7 +11,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
     routing::{any, post},
-    AddExtensionLayer, Json, Router,
+    Json, Router,
 };
 use teloxide::{
     dispatching::update_listeners::{self, StatefulListener},
@@ -64,7 +64,7 @@ pub async fn setup(bot: &BotType) -> Result<impl update_listeners::UpdateListene
 
     let app = Router::<Body>::new()
         .route(&format!("/{}", path), post(handle_update))
-        .layer(AddExtensionLayer::new(tx))
+        .layer(Extension(tx))
         .route("/health", any(|| async { StatusCode::NO_CONTENT }));
 
     tokio::spawn(
