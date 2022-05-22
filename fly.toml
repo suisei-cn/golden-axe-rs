@@ -7,8 +7,8 @@ kill_timeout = 5
 processes    = []
 
 [env]
-BOT_MODE = "webhook"
-DOMAIN   = "golden-axe.fly.dev"
+GOLDEN_AXE_MODE   = "webhook"
+GOLDEN_AXE_DOMAIN = "golden-axe.fly.dev"
 
 [[services]]
 internal_port = 8080
