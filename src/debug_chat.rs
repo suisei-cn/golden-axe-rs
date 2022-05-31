@@ -20,7 +20,7 @@ pub fn init<'a>(bot: BotType) -> Option<&'a UnboundedSender<String>> {
 
                 tokio::spawn(async move {
                     while let Some(msg) = rx.recv().await {
-                        if let Err(e) = bot.send_message(ChatId::Id(id), msg).send().await {
+                        if let Err(e) = bot.send_message(ChatId(id), msg).send().await {
                             warn!("Failed to send to debug channel: {:?}", e);
                         }
                     }

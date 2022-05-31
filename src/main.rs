@@ -7,21 +7,26 @@
 
 mod_use![command, debug_chat, ctx, config];
 
-use std::{lazy::SyncOnceCell, time::Duration};
+use std::{lazy::SyncOnceCell, marker::PhantomData, time::Duration};
 
 use color_eyre::{eyre::ContextCompat, Result};
 use mod_use::mod_use;
-use teloxide::{adaptors::DefaultParseMode, prelude::*, types::ParseMode};
+use teloxide::{
+    adaptors::DefaultParseMode,
+    prelude::*,
+    types::{ParseMode, UserId},
+    utils::command::BotCommands,
+};
 use tokio::{select, time::sleep};
 use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::{
     filter::Targets, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt,
 };
 
-use crate::command::{handle_command, ConstBotCommand, COMMANDS};
+use crate::command::handle_command;
 
 // (user_id, username)
-pub static BOT_INFO: SyncOnceCell<(i64, String)> = SyncOnceCell::new();
+pub static BOT_INFO: SyncOnceCell<(UserId, String)> = SyncOnceCell::new();
 
 type BotType = AutoSend<DefaultParseMode<Bot>>;
 
@@ -81,8 +86,7 @@ async fn run(bot: BotType) -> Result<()> {
 
     BOT_INFO.set((me.id, username.to_owned())).unwrap();
 
-    bot.set_my_commands(COMMANDS.iter().map(ConstBotCommand::into_teloxide))
-        .await?;
+    bot.set_my_commands(Command::bot_commands()).await?;
 
     send_debug(&format!(
         "Golden Axe <b>Online</b>, running as @{username} (#{})",
@@ -90,7 +94,7 @@ async fn run(bot: BotType) -> Result<()> {
     ));
 
     info!("Poll mode");
-    teloxide::commands_repl(bot, username.to_owned(), handle_command).await;
+    teloxide::commands_repl(bot, handle_command, PhantomData::<Command>).await;
 
     Ok(())
 }
