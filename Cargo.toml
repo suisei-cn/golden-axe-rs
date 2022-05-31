@@ -8,20 +8,19 @@ resolver = "2"
 
 [dependencies]
 url                = "2.2.2"
-axum               = "0.4.2"
+tap                = "1.0.1"
 serde              = "1.0.137"
 dotenv             = "0.15.0"
 tracing            = "0.1.34"
 mod_use            = "0.2.0"
 if_chain           = "1.0.2"
+color-eyre         = "0.6.1"
 tokio-stream       = "0.1.8"
 tracing-subscriber = "0.3.11"
 serde_with         = "1.13.0"
 teloxide           = { version = "0.5", features = ["auto-send", "macros", "ctrlc_handler", "rustls"], default-features = false }
 tokio              = { version = "1.3", features = ["rt-multi-thread", "macros", "signal"] }
 figment            = { version = "0.10.6", features = ["env"] }
-color-eyre = "0.6.1"
-tap = "1.0.1"
 
 [[bin]]
 name = "golden-axe"

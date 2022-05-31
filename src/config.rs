@@ -13,32 +13,6 @@ use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use tracing::level_filters::LevelFilter;
 
-#[must_use]
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(rename_all = "lowercase", tag = "mode")]
-pub enum BotMode {
-    Webhook { domain: String },
-    Poll,
-}
-
-impl BotMode {
-    #[must_use]
-    pub const fn is_webhook(&self) -> bool {
-        matches!(self, Self::Webhook { .. })
-    }
-
-    #[must_use]
-    pub const fn is_poll(&self) -> bool {
-        matches!(self, Self::Poll)
-    }
-}
-
-impl Default for BotMode {
-    fn default() -> Self {
-        Self::Poll
-    }
-}
-
 mod default {
     use tracing::level_filters::LevelFilter;
 
@@ -54,8 +28,6 @@ pub struct Config {
     #[serde(default = "default::log")]
     pub log: LevelFilter,
     pub token: String,
-    #[serde(default, flatten)]
-    pub mode: BotMode,
     pub debug_chat: Option<i64>,
 }
 
@@ -131,8 +103,6 @@ fn test_config() {
     figment::Jail::expect_with(|j| {
         j.set_env("GOLDEN_AXE_LOG", "debug");
         j.set_env("GOLDEN_AXE_TOKEN", "token");
-        j.set_env("GOLDEN_AXE_MODE", "webhook");
-        j.set_env("GOLDEN_AXE_DOMAIN", "domain");
         j.set_env("GOLDEN_AXE_DEBUG_CHAT", "123");
 
         assert_eq!(
@@ -140,9 +110,6 @@ fn test_config() {
             Config {
                 log: LevelFilter::DEBUG,
                 token: "token".to_string(),
-                mode: BotMode::Webhook {
-                    domain: "domain".to_string()
-                },
                 debug_chat: Some(123),
             }
         );
@@ -156,14 +123,12 @@ fn test_config_minimal() {
         drop(tracing_subscriber::fmt().pretty().try_init());
 
         j.set_env("GOLDEN_AXE_TOKEN", "token");
-        j.set_env("GOLDEN_AXE_MODE", "poll");
 
         assert_eq!(
             Config::from_env().unwrap(),
             Config {
                 log: LevelFilter::INFO,
                 token: "token".to_string(),
-                mode: BotMode::Poll,
                 debug_chat: None,
             }
         );

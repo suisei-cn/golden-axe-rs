@@ -113,7 +113,9 @@ impl<'a> InChatCtx<'a> {
                 self.set_title(title).await
             }
             Owner(_) => Err("Cannot modify owner"),
-            _ => Err("I can't edit you because of your status (Restricted, Left or Banned)"),
+            Restricted(_) => Err("I can't edit you because of your status (Restricted)"),
+            Left => Err("I can't edit you because of your status (Left)"),
+            Banned(_) => Err("I can't edit you because of your status (Banned)"),
         }
     }
 

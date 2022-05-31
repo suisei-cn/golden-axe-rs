@@ -5,7 +5,7 @@
 #![warn(clippy::all)]
 #![allow(clippy::module_name_repetitions)]
 
-mod_use![command, debug_chat, ctx, webhook, config];
+mod_use![command, debug_chat, ctx, config];
 
 use std::{lazy::SyncOnceCell, time::Duration};
 
@@ -85,27 +85,12 @@ async fn run(bot: BotType) -> Result<()> {
         .await?;
 
     send_debug(&format!(
-        "Golden Axe <b>Online</b> (#{})",
+        "Golden Axe <b>Online</b>, running as @{username} (#{})",
         Config::get().run_hash()
     ));
 
-    match Config::get().mode {
-        BotMode::Webhook { ref domain } => {
-            info!("Webhook mode");
-            let listener = webhook::setup(&bot, domain).await?;
-            teloxide::commands_repl_with_listener(
-                bot,
-                username.to_owned(),
-                handle_command,
-                listener,
-            )
-            .await;
-        }
-        BotMode::Poll => {
-            info!("Poll mode");
-            teloxide::commands_repl(bot, username.to_owned(), handle_command).await;
-        }
-    }
+    info!("Poll mode");
+    teloxide::commands_repl(bot, username.to_owned(), handle_command).await;
 
     Ok(())
 }

@@ -55,7 +55,7 @@ pub fn send_debug(content: &impl ToString) {
             info!("{}", content.to_string());
         }
         None => {
-            panic!("Background debug channel worker is not initialized");
+            panic!("Debug channel not running");
         }
     }
 }

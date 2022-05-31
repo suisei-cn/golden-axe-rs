@@ -26,24 +26,6 @@ Telegram bot token. This should be kept confidential.
 
 **Required**: `true`
 
-### `GOLDEN_AXE_MODE`
-
-Mode of telegram bot to retrive update
-
-**Type**: `String`
-
-**Required**: `true`
-
-**Possible values**: `poll`, `webhook`
-
-### `GOLDEN_AXE_DOMAIN`
-
-Domain of webhook
-
-**Type**: `String`
-
-**Required**: `true` when `GOLDEN_AXE_MODE` is `webhook`, otherwise `false`
-
 ### `GOLDEN_AXE_DEBUG_CHAT`
 
 Chat id of debugging telegram group. This should be kept confidential.
