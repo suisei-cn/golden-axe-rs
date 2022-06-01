@@ -31,7 +31,7 @@ pub async fn run() -> Result<()> {
         }))
     });
     info!("Server running");
-    Server::bind(&"0.0.0.0:8000".parse().unwrap())
+    Server::bind(&"0.0.0.0:8080".parse().unwrap())
         .serve(make_service)
         .await
         .wrap_err("")
