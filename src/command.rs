@@ -1,13 +1,14 @@
-use std::{future::Future, lazy::SyncLazy};
+use std::{convert::Infallible, lazy::SyncLazy};
 
-use color_eyre::Result;
+use color_eyre::{eyre::ensure, Result};
+use sled::Db;
 use teloxide::{
     types::{Message, User},
     utils::command::BotCommands,
 };
-use tracing::{info, warn};
+use tracing::info;
 
-use crate::{send_debug, BotType, Ctx, Loaded};
+use crate::{catch, send_debug, BotType, Ctx};
 
 #[derive(BotCommands, Debug, Clone)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
@@ -20,6 +21,10 @@ pub enum Command {
     Demote,
     #[command(description = "Make me anonymous")]
     Anonymous,
+    #[command(description = "Make me un-anonymous")]
+    DeAnonymous,
+    #[command(description = "Get all titles being used")]
+    Titles,
 }
 
 #[test]
@@ -28,69 +33,72 @@ fn test_command() {
     println!("{:#?}", Command::bot_commands());
 }
 
-async fn handle<'a, Func, Fut>(ctx: Ctx<'a, ()>, func: Func) -> Result<()>
-where
-    Fut: Future<Output = Result<()>> + Send,
-    Func: FnOnce(Ctx<'a, Loaded>) -> Fut + Send,
-{
-    let light = ctx.clone();
-    let loaded = ctx.fetch().await?;
-
-    let inner = move || async {
-        loaded.assert_in_group()?;
-        func(loaded).await?;
-        Result::<()>::Ok(())
-    };
-
-    match inner().await {
-        Ok(()) => {
-            light
-                .reply_to("Done! Wait for a while to take effect.")
-                .await
-        }
-        Err(e) => {
-            warn!("{}", e);
-            light.reply_to("Internal Error").await?;
-            send_debug(&e);
-            Ok(())
-        }
-    }
-}
-
-pub async fn handle_command(bot: BotType, msg: Message, command: Command) -> Result<()> {
+pub async fn handle_command(
+    bot: BotType,
+    msg: Message,
+    command: Command,
+    db: Db,
+) -> Result<(), Infallible> {
     let from = msg.from().map(User::full_name);
-    let ctx = Ctx::new(&bot, &msg)?;
+    let ctx = Ctx::new(&bot, &msg, &db).expect("Command messages should have sender");
 
     info!(?from, ?command, "Handing");
 
-    match command {
+    catch!(match command {
         Command::Help => {
             static DESC: SyncLazy<String> = SyncLazy::new(|| Command::descriptions().to_string());
             ctx.reply_to(&*DESC).await
         }
-
-        Command::Title { title } => {
-            handle(ctx, |ctx| async move {
-                ctx.prep_promote().await?;
-                ctx.set_title(title).await
+        cmd => {
+            ctx.handle_with(|ctx| async move {
+                match cmd {
+                    Command::Title { title } => {
+                        ctx.prep_edit().await?;
+                        ctx.set_title(title).await?;
+                        ctx.done().await
+                    }
+                    Command::Demote => {
+                        ctx.assert_editable()?;
+                        ctx.assert_promotable()?;
+                        ctx.demote().await?;
+                        ctx.remove_title_with_id()?;
+                        ctx.done().await
+                    }
+                    Command::Anonymous => {
+                        ctx.assert_anonymous()?;
+                        ensure!(
+                            ctx.get_record_with_id()?.is_some(),
+                            "Before making anonymous, use /title first to register"
+                        );
+                        ctx.prep_edit().await?;
+                        ctx.set_anonymous().await?;
+                        ctx.done().await
+                    }
+                    Command::DeAnonymous => {
+                        ctx.de_anonymous().await?;
+                        ctx.done().await
+                    }
+                    Command::Titles => {
+                        ctx.assert_sender_admin()?;
+                        let keys = ctx.list_titles()?;
+                        let show = if keys.is_empty() {
+                            "No titles found.".to_owned()
+                        } else {
+                            let titles = keys
+                                .iter()
+                                .map(std::string::ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            format!("<code>in Chat({}):</code>\n{}", keys[0].chat_id, titles)
+                        };
+                        ctx.reply_to(&show).await
+                    }
+                    Command::Help => unreachable!(),
+                }
             })
             .await
         }
-
-        Command::Demote => {
-            handle(ctx, |ctx| async move {
-                ctx.prep_promote().await?;
-                ctx.demote().await
-            })
-            .await
-        }
-
-        Command::Anonymous => {
-            handle(ctx, |ctx| async move {
-                ctx.prep_promote().await?;
-                ctx.set_anonymous().await
-            })
-            .await
-        }
-    }
+    });
+    catch!(db.flush_async().await);
+    Ok(())
 }

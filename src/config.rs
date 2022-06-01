@@ -4,6 +4,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     lazy::SyncOnceCell,
+    path::PathBuf,
     time::SystemTime,
 };
 
@@ -14,10 +15,16 @@ use serde_with::{serde_as, DisplayFromStr};
 use tracing::level_filters::LevelFilter;
 
 mod default {
+    use std::path::PathBuf;
+
     use tracing::level_filters::LevelFilter;
 
     pub const fn log() -> LevelFilter {
         LevelFilter::INFO
+    }
+
+    pub fn db_path() -> PathBuf {
+        PathBuf::from("/data/db.sled")
     }
 }
 
@@ -27,6 +34,8 @@ pub struct Config {
     #[serde_as(as = "DisplayFromStr")]
     #[serde(default = "default::log")]
     pub log: LevelFilter,
+    #[serde(default = "default::db_path")]
+    pub db_path: PathBuf,
     pub token: String,
     pub debug_chat: Option<i64>,
 }
@@ -104,6 +113,7 @@ fn test_config() {
         j.set_env("GOLDEN_AXE_LOG", "debug");
         j.set_env("GOLDEN_AXE_TOKEN", "token");
         j.set_env("GOLDEN_AXE_DEBUG_CHAT", "123");
+        j.set_env("GOLDEN_AXE_DB_PATH", "/abc");
 
         assert_eq!(
             Config::from_env().unwrap(),
@@ -111,6 +121,7 @@ fn test_config() {
                 log: LevelFilter::DEBUG,
                 token: "token".to_string(),
                 debug_chat: Some(123),
+                db_path: "/abc".into(),
             }
         );
         Ok(())
@@ -130,6 +141,7 @@ fn test_config_minimal() {
                 log: LevelFilter::INFO,
                 token: "token".to_string(),
                 debug_chat: None,
+                db_path: "/data/db.sled".into(),
             }
         );
         Ok(())

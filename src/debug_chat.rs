@@ -48,9 +48,11 @@ pub fn init<'a>(bot: BotType) -> Option<&'a UnboundedSender<String>> {
 /// When debug channel is not initialized
 pub fn send_debug(content: &impl ToString) {
     match DEBUG_CHANNEL.get() {
-        Some(Some(tx)) => tx
-            .send(content.to_string())
-            .expect("Background debug channel closed"),
+        Some(Some(tx)) => {
+            let string = content.to_string();
+            warn!("{string}");
+            tx.send(string).expect("Background debug channel closed");
+        }
         Some(None) => {
             info!("{}", content.to_string());
         }
@@ -59,3 +61,19 @@ pub fn send_debug(content: &impl ToString) {
         }
     }
 }
+
+macro_rules! catch {
+    ($expr:expr) => {
+        if let Err(e) = $expr {
+            send_debug(&e);
+        }
+    };
+
+    ($info:literal, $expr:expr) => {
+        if let Err(e) = $expr {
+            send_debug(format!("{}: {}", $info, e.to_string()));
+        }
+    };
+}
+
+pub(crate) use catch;

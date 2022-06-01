@@ -1,18 +1,25 @@
 #![feature(let_chains)]
 #![feature(once_cell)]
+#![feature(iterator_try_collect)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
 #![warn(clippy::all)]
 #![allow(clippy::module_name_repetitions)]
 
-mod_use![command, debug_chat, ctx, config];
+mod_use![command, debug_chat, ctx, config, server];
 
-use std::{lazy::SyncOnceCell, marker::PhantomData, time::Duration};
+use std::{
+    future::{ready, Future},
+    lazy::SyncOnceCell,
+    sync::Arc,
+    time::Duration,
+};
 
 use color_eyre::{eyre::ContextCompat, Result};
 use mod_use::mod_use;
 use teloxide::{
     adaptors::DefaultParseMode,
+    dispatching::update_listeners,
     prelude::*,
     types::{ParseMode, UserId},
     utils::command::BotCommands,
@@ -57,10 +64,12 @@ async fn main() -> Result<()> {
         .parse_mode(ParseMode::Html)
         .auto_send();
 
-    let _ = init(bot.clone());
+    let db = sled::open(&conf.db_path).unwrap();
+
+    let _ = debug_chat::init(bot.clone());
 
     select! {
-        _ = run(bot) => {},
+        _ = run(bot, db) => {},
         _ = tokio::signal::ctrl_c() => {}
     }
 
@@ -74,7 +83,7 @@ async fn main() -> Result<()> {
 }
 
 #[allow(clippy::future_not_send)]
-async fn run(bot: BotType) -> Result<()> {
+async fn run(bot: BotType, db: sled::Db) -> Result<()> {
     let me = bot.get_me().await?.user;
 
     info!(?me, "Bot logged in");
@@ -94,7 +103,29 @@ async fn run(bot: BotType) -> Result<()> {
     ));
 
     info!("Poll mode");
-    teloxide::commands_repl(bot, handle_command, PhantomData::<Command>).await;
+
+    let mut deps = DependencyMap::new();
+    deps.insert(db);
+
+    Dispatcher::builder(
+        bot.clone(),
+        Update::filter_message()
+            .filter_command::<Command>()
+            .chain(dptree::endpoint(handle_command)),
+    )
+    .default_handler(ignore_update)
+    .dependencies(deps)
+    .build()
+    .setup_ctrlc_handler()
+    .dispatch_with_listener(
+        update_listeners::polling_default(bot).await,
+        LoggingErrorHandler::new(),
+    )
+    .await;
 
     Ok(())
+}
+
+fn ignore_update(_: Arc<Update>) -> impl Future<Output = ()> {
+    ready(())
 }

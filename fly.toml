@@ -13,6 +13,10 @@ GOLDEN_AXE_DOMAIN = "golden-axe.fly.dev"
 [experimental]
 cmd = "golden-axe"
 
+[mounts]
+source      = "data"
+destination = "/data"
+
 [[services]]
 internal_port = 8080
 protocol      = "tcp"
