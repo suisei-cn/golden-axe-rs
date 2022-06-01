@@ -135,7 +135,6 @@ async fn handle_command(
                         string if string.starts_with('@') && string.len() > 1 => {
                             ctx.assert_sender_owner()?;
                             let name = &string[1..];
-                            info!("{name:?}");
                             let target = ctx
                                 .find_admin_with_username(name)
                                 .await?

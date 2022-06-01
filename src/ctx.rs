@@ -23,6 +23,7 @@ use teloxide::{
     },
 };
 use tokio::{time::sleep, try_join};
+use tracing::info;
 
 use crate::{send_debug, BotType, BOT_INFO};
 
@@ -294,7 +295,6 @@ impl<'a, S> Ctx<'a, S> {
             .bot
             .get_chat_administrators(self.chat_id())
             .await?
-            // .tap_deref(|x| info!("{x:#?}"))
             .into_iter()
             .find(|user| user.user.username.as_deref() == Some(username)))
     }
@@ -486,6 +486,7 @@ impl<'a, 'u> Ctx<'a, Loaded> {
     pub async fn fetch_real_chat_member(&mut self) -> Result<()> {
         //  Sender is anonymous, try to decode the identity
         if self.conversation.sender.user.first_name == "Group" {
+            info!("Sender is anonymous, trying to find real identity");
             self.is_anonymous = true;
             let sig = match self.msg.author_signature() {
                 Some(sig) => sig,
@@ -502,7 +503,7 @@ impl<'a, 'u> Ctx<'a, Loaded> {
             };
             let real = self.bot.get_chat_member(real.chat_id, real.user_id).await?;
             self.sender = real.user.clone();
-            self.conversation.me = real.into();
+            self.conversation.sender = real.into();
         }
         Ok(())
     }
@@ -549,7 +550,6 @@ impl<'a, 'u> Ctx<'a, Loaded> {
         self.bot
             .promote_chat_member(self.chat_id(), self.sender_in_chat().user.id)
             .can_invite_users(true)
-            .is_anonymous(false)
             .send()
             .await
             .map_err(|error| {
