@@ -1,6 +1,7 @@
 #![feature(let_chains)]
 #![feature(once_cell)]
 #![feature(iterator_try_collect)]
+#![feature(box_into_inner)]
 #![allow(clippy::module_name_repetitions)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]

@@ -4,7 +4,6 @@
 use std::{
     fmt::{self, Display},
     future::Future,
-    ops::{Deref, DerefMut},
     time::Duration,
 };
 
@@ -55,19 +54,26 @@ pub struct Ctx<'a, S> {
 
 /// State of the context representing conversation information has been fetched.
 #[derive(Clone)]
-pub struct Loaded(Box<(ChatMember, ChatMember)>);
-
-impl Deref for Loaded {
-    type Target = (ChatMember, ChatMember);
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+pub struct Loaded {
+    pub me: Box<ChatMember>,
+    pub sender: Box<ChatMember>,
 }
 
-impl DerefMut for Loaded {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl Loaded {
+    #[must_use]
+    pub fn new(me: ChatMember, sender: ChatMember) -> Self {
+        Self {
+            me: Box::new(me),
+            sender: Box::new(sender),
+        }
+    }
+
+    pub fn swap_bot(&mut self, bot: ChatMember) -> Box<ChatMember> {
+        std::mem::replace(&mut self.me, Box::new(bot))
+    }
+
+    pub fn swap_sender(&mut self, sender: ChatMember) -> Box<ChatMember> {
+        std::mem::replace(&mut self.sender, Box::new(sender))
     }
 }
 
@@ -256,7 +262,7 @@ impl<'a, S> Ctx<'a, S> {
     /// # Errors
     /// If the chat member information cannot be fetched.
     pub async fn fetch(self) -> Result<Ctx<'a, Loaded>> {
-        let (rx, tx) = try_join!(
+        let (me, sender) = try_join!(
             self.bot.get_chat_member(
                 self.chat_id(),
                 BOT_INFO.get().expect("Bot info not initialized").0
@@ -273,10 +279,24 @@ impl<'a, S> Ctx<'a, S> {
             bot,
             msg,
             db,
-            sender: tx.user.clone(),
+            sender: sender.user.clone(),
             is_anonymous: false,
-            conversation: Loaded(Box::new((rx, tx))),
+            conversation: Loaded::new(me, sender),
         })
+    }
+
+    /// Find specific admin in the current chat
+    ///
+    /// # Errors
+    /// API errors
+    pub async fn find_admin_with_username(&self, username: &str) -> Result<Option<ChatMember>> {
+        Ok(self
+            .bot
+            .get_chat_administrators(self.chat_id())
+            .await?
+            // .tap_deref(|x| info!("{x:#?}"))
+            .into_iter()
+            .find(|user| user.user.username.as_deref() == Some(username)))
     }
 
     /// Demote everyone and remove all titles in chat
@@ -374,17 +394,6 @@ impl<'a, S> Ctx<'a, S> {
     pub async fn demote(&self) -> Result<()> {
         self.bot
             .promote_chat_member(self.chat_id(), self.sender_id())
-            .is_anonymous(false)
-            .can_manage_chat(false)
-            .can_change_info(false)
-            .can_post_messages(false)
-            .can_edit_messages(false)
-            .can_delete_messages(false)
-            .can_manage_video_chats(false)
-            .can_invite_users(false)
-            .can_restrict_members(false)
-            .can_pin_messages(false)
-            .can_promote_members(false)
             .send()
             .await
             .map_err(|error| {
@@ -438,13 +447,36 @@ impl<'a, 'u> Ctx<'a, Loaded> {
     #[inline]
     #[must_use]
     pub const fn me_in_chat(&self) -> &ChatMember {
-        &self.conversation.0.0
+        &self.conversation.me
     }
 
     #[inline]
     #[must_use]
     pub const fn sender_in_chat(&self) -> &ChatMember {
-        &self.conversation.0.1
+        &self.conversation.sender
+    }
+
+    /// Create and enter a temporary scope with ctx with given [`ChatMember`] as
+    /// the sender.
+    ///
+    /// # Errors
+    /// If the function returns an error.
+    pub async fn with_sender<Func, Fut>(&mut self, sender: ChatMember, func: Func) -> Result<()>
+    where
+        Fut: Future<Output = Result<()>>,
+        Func: FnOnce(Ctx<'a, Loaded>) -> Fut,
+    {
+        let temp = Self {
+            bot: self.bot,
+            db: self.db,
+            msg: self.msg,
+            sender: sender.user.clone(),
+            conversation: Loaded::new(self.me_in_chat().clone(), sender),
+            is_anonymous: self.is_anonymous,
+        };
+
+        func(temp).await?;
+        Ok(())
     }
 
     /// If sender is anonymous, try find real sender
@@ -453,12 +485,15 @@ impl<'a, 'u> Ctx<'a, Loaded> {
     /// If the sender is not found or error during fetching
     pub async fn fetch_real_chat_member(&mut self) -> Result<()> {
         //  Sender is anonymous, try to decode the identity
-        if (*self.conversation.0).1.user.first_name == "Group" {
+        if self.conversation.sender.user.first_name == "Group" {
             self.is_anonymous = true;
             let sig = match self.msg.author_signature() {
                 Some(sig) => sig,
                 None => {
-                    bail!("You are anonymous and don't have a title so unable to identify you")
+                    bail!(
+                        "You/they are anonymous and don't have a title so unable to identify \
+                         you/them"
+                    )
                 }
             };
             let real = match self.get_record_with_sig(sig)? {
@@ -467,7 +502,7 @@ impl<'a, 'u> Ctx<'a, Loaded> {
             };
             let real = self.bot.get_chat_member(real.chat_id, real.user_id).await?;
             self.sender = real.user.clone();
-            (*self.conversation.0).1 = real;
+            self.conversation.me = real.into();
         }
         Ok(())
     }
@@ -497,7 +532,7 @@ impl<'a, 'u> Ctx<'a, Loaded> {
                 sleep(Duration::from_secs_f32(1.5)).await;
             }
             kind => bail!(
-                "I can't edit you because of your status({})",
+                "I can't edit you/them because of your(their) status({})",
                 chat_member_kind_to_str(kind)
             ),
         }
@@ -547,7 +582,7 @@ impl<'a, 'u> Ctx<'a, Loaded> {
         match &self.sender_in_chat().kind {
             ChatMemberKind::Owner(_) | ChatMemberKind::Administrator(_) => Ok(()),
             kind => bail!(
-                "You are not admin, please contact admin (Currently {})",
+                "You/they are not admin, please contact admin (Currently {})",
                 chat_member_kind_to_str(kind)
             ),
         }
@@ -561,7 +596,7 @@ impl<'a, 'u> Ctx<'a, Loaded> {
         match &self.sender_in_chat().kind {
             ChatMemberKind::Owner(_) => Ok(()),
             kind => bail!(
-                "This function is owner only, (you are {})",
+                "This function is owner only, (you/they are {})",
                 chat_member_kind_to_str(kind)
             ),
         }
@@ -585,13 +620,13 @@ impl<'a, 'u> Ctx<'a, Loaded> {
                 Administrator(Admin { can_be_edited, .. }) => {
                     ensure!(
                         can_be_edited,
-                        "I can't change your info (are you promoted by others?)"
+                        "I can't change your/their info (are you/they promoted by others?)"
                     );
                     Ok(())
                 }
                 Member => Ok(()),
                 ref k => bail!(
-                    "I can't edit you because of your status({})",
+                    "I can't edit you/them because of your/their status({})",
                     chat_member_kind_to_str(k)
                 ),
             },
@@ -636,7 +671,7 @@ impl<'a, 'u> Ctx<'a, Loaded> {
     /// If the privilege and status are not fullfilled.
     #[allow(clippy::missing_panics_doc)]
     pub fn assert_sender_anonymous(&self) -> Result<()> {
-        ensure!(self.is_anonymous, "You are not anonymous");
+        ensure!(self.is_anonymous, "You/they are not anonymous");
         Ok(())
     }
 }

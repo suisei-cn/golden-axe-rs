@@ -6,7 +6,7 @@ use std::{
 };
 
 use color_eyre::{
-    eyre::{bail, ensure, ContextCompat},
+    eyre::{bail, ensure, eyre, ContextCompat},
     Result,
 };
 use sled::Db;
@@ -31,7 +31,7 @@ pub enum Command {
     #[command(description = "Get all titles being used")]
     Titles,
     #[command(description = "Demote me and remove my title")]
-    Demote,
+    Demote { username: String },
     #[command(description = "Demote everyone and remove all titles in chat")]
     Nuke,
     #[command(description = "Make me anonymous")]
@@ -111,7 +111,7 @@ async fn handle_command(
             ctx.reply_to(&*DESC).await
         }
         cmd => {
-            ctx.handle_with(|ctx| async move {
+            ctx.handle_with(|mut ctx| async move {
                 match cmd {
                     Command::Title { title } => {
                         ensure!(!title.is_empty(), "Title cannot be empty");
@@ -124,13 +124,39 @@ async fn handle_command(
                         ctx.remove_title_with_sig(&title)?;
                         ctx.done().await
                     }
-                    Command::Demote => {
-                        ctx.assert_editable()?;
-                        ctx.assert_bot_promotable()?;
-                        ctx.demote().await?;
-                        ctx.remove_title_with_id()?;
-                        ctx.done().await
-                    }
+                    Command::Demote { username } => match username.as_str() {
+                        "" => {
+                            ctx.assert_editable()?;
+                            ctx.assert_bot_promotable()?;
+                            ctx.demote().await?;
+                            ctx.remove_title_with_id()?;
+                            ctx.done().await
+                        }
+                        string if string.starts_with('@') && string.len() > 1 => {
+                            ctx.assert_sender_owner()?;
+                            let name = &string[1..];
+                            info!("{name:?}");
+                            let target = ctx
+                                .find_admin_with_username(name)
+                                .await?
+                                .ok_or_else(|| eyre!("No such user"))?;
+
+                            ctx.with_sender(target, |ctx| async move {
+                                ctx.assert_editable()?;
+                                ctx.assert_bot_promotable()?;
+                                ctx.demote().await?;
+                                ctx.remove_title_with_id()?;
+                                ctx.done().await
+                            })
+                            .await
+                        }
+                        _ => {
+                            bail!(
+                                "format: /demote to demote yourself or /demote @someone if you're \
+                                 owner"
+                            )
+                        }
+                    },
                     Command::Anonymous => {
                         ctx.assert_bot_anonymous()?;
                         if ctx.is_anonymous() {
