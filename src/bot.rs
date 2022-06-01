@@ -122,7 +122,7 @@ async fn handle_command(
                     }
                     Command::Anonymous => {
                         ctx.assert_bot_anonymous()?;
-                        if ctx.assert_bot_anonymous().is_ok() {
+                        if ctx.assert_sender_anonymous().is_ok() {
                             bail!("You are already anonymous")
                         }
                         ensure!(

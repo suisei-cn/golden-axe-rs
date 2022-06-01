@@ -388,6 +388,15 @@ impl<'a> Ctx<'a, Loaded> {
         &self.conversation.0.1
     }
 
+    // pub fn read_identity(&self) -> Result<ChatMember> {
+    //     let sender = self.sender_in_chat();
+    //     if sender.is_anonymous() {
+    //         read
+    //     }
+
+    //     todo!()
+    // }
+
     /// Prepare for editing user privilege
     ///
     /// This will check for proper privileges according to status of the
@@ -472,6 +481,20 @@ impl<'a> Ctx<'a, Loaded> {
         }
     }
 
+    /// Ensure that the sender is the owner of the chat.
+    ///
+    /// # Errors
+    /// Failed when not an admin.
+    pub fn assert_sender_owner(&self) -> Result<()> {
+        match &self.sender_in_chat().kind {
+            ChatMemberKind::Owner(_) => Ok(()),
+            kind => bail!(
+                "This function is owner only, (you are {})",
+                chat_member_kind_to_str(kind)
+            ),
+        }
+    }
+
     /// Ensure that the bot is privileged enough to edit the user.
     ///
     /// This means one of these situations:
@@ -545,7 +568,7 @@ impl<'a> Ctx<'a, Loaded> {
     #[allow(clippy::missing_panics_doc)]
     pub fn assert_sender_anonymous(&self) -> Result<&str> {
         ensure!(
-            self.sender_in_chat().user.first_name == "Group",
+            self.sender_in_chat().kind.is_anonymous(),
             "You are not anonymous"
         );
         self.msg
