@@ -1,14 +1,21 @@
-use std::{convert::Infallible, lazy::SyncLazy};
+use std::{
+    convert::Infallible,
+    future::{ready, Future},
+    lazy::SyncLazy,
+    sync::Arc,
+};
 
-use color_eyre::{eyre::ensure, Result};
+use color_eyre::{
+    eyre::{ensure, ContextCompat},
+    Result,
+};
 use sled::Db;
 use teloxide::{
-    types::{Message, User},
-    utils::command::BotCommands,
+    dispatching::update_listeners, prelude::*, types::User, utils::command::BotCommands,
 };
 use tracing::info;
 
-use crate::{catch, send_debug, BotType, Ctx};
+use crate::{catch, send_debug, BotType, Config, Ctx, BOT_INFO};
 
 #[derive(BotCommands, Debug, Clone)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
@@ -33,7 +40,55 @@ fn test_command() {
     println!("{:#?}", Command::bot_commands());
 }
 
-pub async fn handle_command(
+#[allow(clippy::future_not_send)]
+pub async fn run(bot: BotType, db: sled::Db) -> Result<()> {
+    let me = bot.get_me().await?.user;
+
+    info!(?me, "Bot logged in");
+
+    let username = me
+        .username
+        .as_deref()
+        .wrap_err_with(|| "Username of bot not set")?;
+
+    BOT_INFO.set((me.id, username.to_owned())).unwrap();
+
+    bot.set_my_commands(Command::bot_commands()).await?;
+
+    send_debug(&format!(
+        "Golden Axe <b>Online</b>, running as @{username} (#{})",
+        Config::get().run_hash()
+    ));
+
+    info!("Poll mode");
+
+    let mut deps = DependencyMap::new();
+    deps.insert(db);
+
+    Dispatcher::builder(
+        bot.clone(),
+        Update::filter_message()
+            .filter_command::<Command>()
+            .chain(dptree::endpoint(handle_command)),
+    )
+    .default_handler(ignore_update)
+    .dependencies(deps)
+    .build()
+    .setup_ctrlc_handler()
+    .dispatch_with_listener(
+        update_listeners::polling_default(bot).await,
+        LoggingErrorHandler::new(),
+    )
+    .await;
+
+    Ok(())
+}
+
+fn ignore_update(_: Arc<Update>) -> impl Future<Output = ()> {
+    ready(())
+}
+
+async fn handle_command(
     bot: BotType,
     msg: Message,
     command: Command,
