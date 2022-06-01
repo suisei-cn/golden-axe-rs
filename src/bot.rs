@@ -122,13 +122,12 @@ async fn handle_command(
                     }
                     Command::Anonymous => {
                         ctx.assert_bot_anonymous()?;
-                        if ctx.assert_sender_anonymous().is_ok() {
+                        if ctx.is_anonymous() {
                             bail!("You are already anonymous")
                         }
-                        ensure!(
-                            ctx.get_record_with_id()?.is_some(),
-                            "Before making anonymous, use /title first to register"
-                        );
+                        if ctx.get_record_with_id()?.is_none() {
+                            bail!("Before making anonymous, use /title first to register")
+                        }
                         ctx.prep_edit().await?;
                         ctx.set_anonymous().await?;
                         ctx.done().await

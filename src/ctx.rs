@@ -23,6 +23,7 @@ use teloxide::{
     },
 };
 use tokio::{time::sleep, try_join};
+use tracing::info;
 
 use crate::{send_debug, BotType, BOT_INFO};
 
@@ -47,6 +48,7 @@ pub struct Ctx<'a, S> {
     bot: &'a BotType,
     msg: &'a Message,
     db: &'a Db,
+    is_anonymous: bool,
     conversation: S,
 }
 
@@ -80,6 +82,7 @@ impl<'a> Ctx<'a, ()> {
             bot,
             msg,
             db,
+            is_anonymous: false,
             conversation: (),
         })
     }
@@ -97,11 +100,12 @@ impl<'a> Ctx<'a, ()> {
         Func: FnOnce(Ctx<'a, Loaded>) -> Fut + Send,
     {
         let ctx = self.clone();
-        let loaded = ctx.fetch().await?;
+        let mut loaded = ctx.fetch().await?;
 
         // Error occurred in inner will be sent to user directly - Logic error
         let inner = move || async {
             loaded.assert_in_group()?;
+            loaded.fetch_real_chat_member().await?;
             func(loaded).await?;
             Result::<()>::Ok(())
         };
@@ -115,21 +119,6 @@ impl<'a> Ctx<'a, ()> {
 }
 
 impl<'a, S> Ctx<'a, S> {
-    /// Initialize in chat context from [`UpdateWithCtx`]
-    ///
-    /// # Errors
-    /// Failed when no sender
-    ///
-    /// [`UpdateWithCtx`]: teloxide::prelude::UpdateWithCtx
-    pub async fn new_full(
-        bot: &'a BotType,
-        msg: &'a Message,
-        db: &'a Db,
-    ) -> Result<Ctx<'a, Loaded>> {
-        let ctx = Ctx::new(bot, msg, db)?;
-        ctx.fetch().await
-    }
-
     /// Get the bot reference
     #[inline]
     #[must_use]
@@ -158,6 +147,12 @@ impl<'a, S> Ctx<'a, S> {
         self.msg
             .from()
             .expect("Sender should be enforced during initialization")
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn is_anonymous(&self) -> bool {
+        self.is_anonymous
     }
 
     /// Get the [`UserId`] of current sender
@@ -275,6 +270,7 @@ impl<'a, S> Ctx<'a, S> {
             bot,
             msg,
             db,
+            is_anonymous: false,
             conversation: Loaded(Box::new((rx, tx))),
         })
     }
@@ -326,6 +322,17 @@ impl<'a, S> Ctx<'a, S> {
     pub async fn demote(&self) -> Result<()> {
         self.bot
             .promote_chat_member(self.chat_id(), self.sender_id())
+            .is_anonymous(false)
+            .can_manage_chat(false)
+            .can_change_info(false)
+            .can_post_messages(false)
+            .can_edit_messages(false)
+            .can_delete_messages(false)
+            .can_manage_video_chats(false)
+            .can_invite_users(false)
+            .can_restrict_members(false)
+            .can_pin_messages(false)
+            .can_promote_members(false)
             .send()
             .await
             .map_err(|error| {
@@ -388,14 +395,30 @@ impl<'a> Ctx<'a, Loaded> {
         &self.conversation.0.1
     }
 
-    // pub fn read_identity(&self) -> Result<ChatMember> {
-    //     let sender = self.sender_in_chat();
-    //     if sender.is_anonymous() {
-    //         read
-    //     }
-
-    //     todo!()
-    // }
+    /// If sender is anonymous, try find real sender
+    ///
+    /// # Errors
+    /// If the sender is not found or error during fetching
+    pub async fn fetch_real_chat_member(&mut self) -> Result<()> {
+        //  Sender is anonymous, try to decode the identity
+        if (*self.conversation.0).1.user.first_name == "Group" {
+            self.is_anonymous = true;
+            let sig = match self.msg.author_signature() {
+                Some(sig) => sig,
+                None => {
+                    bail!("You are anonymous and don't have a title so unable to identify you")
+                }
+            };
+            let real = match self.get_record_with_sig(sig)? {
+                Some(real) => real,
+                None => bail!("I don't recognize you"),
+            };
+            let real = self.bot.get_chat_member(real.chat_id, real.user_id).await?;
+            info!("{:#?}", real);
+            (*self.conversation.0).1 = real;
+        }
+        Ok(())
+    }
 
     /// Prepare for editing user privilege
     ///
@@ -433,15 +456,12 @@ impl<'a> Ctx<'a, Loaded> {
     /// # Errors
     /// When user not found or error during interaction with tg api
     pub async fn de_anonymous(&self) -> Result<()> {
-        let sig = self.assert_sender_anonymous()?;
-
-        let record = self.get_record_with_sig(sig)?.ok_or_else(|| {
-            eyre!("I don't recognize you. Please contact admin to manually de-anonymous.")
-        })?;
+        self.assert_sender_anonymous()?;
 
         self.bot
-            .promote_chat_member(record.chat_id, record.user_id)
+            .promote_chat_member(self.chat_id(), self.sender_in_chat().user.id)
             .can_invite_users(true)
+            .is_anonymous(false)
             .send()
             .await
             .map_err(|error| {
@@ -473,7 +493,6 @@ impl<'a> Ctx<'a, Loaded> {
     pub fn assert_sender_admin(&self) -> Result<()> {
         match &self.sender_in_chat().kind {
             ChatMemberKind::Owner(_) | ChatMemberKind::Administrator(_) => Ok(()),
-            _ if self.assert_sender_anonymous().is_ok() => Ok(()),
             kind => bail!(
                 "You are not admin, please contact admin (Currently {})",
                 chat_member_kind_to_str(kind)
@@ -518,9 +537,6 @@ impl<'a> Ctx<'a, Loaded> {
                     Ok(())
                 }
                 Member => Ok(()),
-                _ if self.assert_sender_anonymous().is_ok() => {
-                    bail!("I can't edit you because of you're anonymous")
-                }
                 ref k => bail!(
                     "I can't edit you because of your status({})",
                     chat_member_kind_to_str(k)
@@ -566,14 +582,9 @@ impl<'a> Ctx<'a, Loaded> {
     /// # Errors
     /// If the privilege and status are not fullfilled.
     #[allow(clippy::missing_panics_doc)]
-    pub fn assert_sender_anonymous(&self) -> Result<&str> {
-        ensure!(
-            self.sender_in_chat().kind.is_anonymous(),
-            "You are not anonymous"
-        );
-        self.msg
-            .author_signature()
-            .ok_or_else(|| eyre!("You don't have a title. Unable to identify you."))
+    pub fn assert_sender_anonymous(&self) -> Result<()> {
+        ensure!(self.is_anonymous, "You are not anonymous");
+        Ok(())
     }
 }
 
