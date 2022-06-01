@@ -23,7 +23,6 @@ use teloxide::{
     },
 };
 use tokio::{time::sleep, try_join};
-use tracing::info;
 
 use crate::{send_debug, BotType, BOT_INFO};
 
@@ -48,6 +47,7 @@ pub struct Ctx<'a, S> {
     bot: &'a BotType,
     msg: &'a Message,
     db: &'a Db,
+    sender: User,
     is_anonymous: bool,
     conversation: S,
 }
@@ -70,18 +70,22 @@ impl DerefMut for Loaded {
     }
 }
 
-impl<'a> Ctx<'a, ()> {
+impl<'a, 'u> Ctx<'a, ()> {
     /// Create a new light context.
     ///
     /// # Errors
     /// When the message has no sender
     pub fn new(bot: &'a BotType, msg: &'a Message, db: &'a Db) -> Result<Self> {
-        ensure!(msg.from().is_some(), "The message has no sender");
+        let sender = match msg.from().cloned() {
+            Some(sender) => sender,
+            None => bail!("Message has no sender"),
+        };
 
         Ok(Self {
             bot,
             msg,
             db,
+            sender,
             is_anonymous: false,
             conversation: (),
         })
@@ -143,10 +147,8 @@ impl<'a, S> Ctx<'a, S> {
     /// Get the sender
     #[inline]
     #[must_use]
-    pub fn sender(&self) -> &User {
-        self.msg
-            .from()
-            .expect("Sender should be enforced during initialization")
+    pub const fn sender(&self) -> &User {
+        &self.sender
     }
 
     #[inline]
@@ -158,7 +160,7 @@ impl<'a, S> Ctx<'a, S> {
     /// Get the [`UserId`] of current sender
     #[inline]
     #[must_use]
-    pub fn sender_id(&self) -> UserId {
+    pub const fn sender_id(&self) -> UserId {
         self.sender().id
     }
 
@@ -270,6 +272,7 @@ impl<'a, S> Ctx<'a, S> {
             bot,
             msg,
             db,
+            sender: tx.user.clone(),
             is_anonymous: false,
             conversation: Loaded(Box::new((rx, tx))),
         })
@@ -382,7 +385,7 @@ impl<'a, S> Ctx<'a, S> {
     }
 }
 
-impl<'a> Ctx<'a, Loaded> {
+impl<'a, 'u> Ctx<'a, Loaded> {
     #[inline]
     #[must_use]
     pub const fn me_in_chat(&self) -> &ChatMember {
@@ -414,7 +417,7 @@ impl<'a> Ctx<'a, Loaded> {
                 None => bail!("I don't recognize you"),
             };
             let real = self.bot.get_chat_member(real.chat_id, real.user_id).await?;
-            info!("{:#?}", real);
+            self.sender = real.user.clone();
             (*self.conversation.0).1 = real;
         }
         Ok(())
