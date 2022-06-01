@@ -22,6 +22,8 @@ use crate::{catch, send_debug, BotType, Config, Ctx, BOT_INFO};
 pub enum Command {
     #[command(description = "Display this text.")]
     Help,
+    #[command(description = "Display this text.")]
+    Start,
     #[command(description = "Change my title.")]
     Title { title: String },
     #[command(description = "Demote me and remove my title")]
@@ -100,7 +102,7 @@ async fn handle_command(
     info!(?from, ?command, "Handing");
 
     catch!(match command {
-        Command::Help => {
+        Command::Help | Command::Start => {
             static DESC: SyncLazy<String> = SyncLazy::new(|| Command::descriptions().to_string());
             ctx.reply_to(&*DESC).await
         }
@@ -150,7 +152,7 @@ async fn handle_command(
                         };
                         ctx.reply_to(&show).await
                     }
-                    Command::Help => unreachable!(),
+                    Command::Help | Command::Start => unreachable!(),
                 }
             })
             .await
