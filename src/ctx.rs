@@ -23,7 +23,6 @@ use teloxide::{
     },
 };
 use tokio::{time::sleep, try_join};
-use tracing::warn;
 
 use crate::{send_debug, BotType, BOT_INFO};
 
@@ -197,7 +196,7 @@ impl<'a, S> Ctx<'a, S> {
             .set_chat_administrator_custom_title(self.chat_id(), self.sender_id(), &title)
             .await
             .map_err(|error| {
-                warn!(%error);
+                send_debug(&error);
                 eyre!("Failed to set title")
             })?;
         self.save_title(&title)?;
@@ -404,9 +403,9 @@ impl<'a> Ctx<'a, Loaded> {
         match &self.sender_in_chat().kind {
             Administrator(_) => self.assert_editable()?,
             Member => {
-                self.assert_promotable()?;
+                self.assert_bot_promotable()?;
                 self.promote().await.map_err(|error| {
-                    warn!(%error);
+                    send_debug(&error);
                     eyre!("Failed to promote")
                 })?;
                 // Wait a while for the promotion to take effect.
@@ -448,7 +447,7 @@ impl<'a> Ctx<'a, Loaded> {
     ///
     /// # Errors
     /// Failed when not an admin.
-    pub fn assert_admin(&self) -> Result<()> {
+    pub fn assert_bot_admin(&self) -> Result<()> {
         match &self.me_in_chat().kind {
             ChatMemberKind::Owner(_) | ChatMemberKind::Administrator(_) => Ok(()),
             kind => bail!(
@@ -465,8 +464,9 @@ impl<'a> Ctx<'a, Loaded> {
     pub fn assert_sender_admin(&self) -> Result<()> {
         match &self.sender_in_chat().kind {
             ChatMemberKind::Owner(_) | ChatMemberKind::Administrator(_) => Ok(()),
+            _ if self.assert_sender_anonymous().is_ok() => Ok(()),
             kind => bail!(
-                "I am not an admin, please contact admin (Currently {})",
+                "You are not admin, please contact admin (Currently {})",
                 chat_member_kind_to_str(kind)
             ),
         }
@@ -495,6 +495,9 @@ impl<'a> Ctx<'a, Loaded> {
                     Ok(())
                 }
                 Member => Ok(()),
+                _ if self.assert_sender_anonymous().is_ok() => {
+                    bail!("I can't edit you because of you're anonymous")
+                }
                 ref k => bail!(
                     "I can't edit you because of your status({})",
                     chat_member_kind_to_str(k)
@@ -508,7 +511,7 @@ impl<'a> Ctx<'a, Loaded> {
     ///
     /// # Errors
     /// Failed when not privileged enough.
-    pub fn assert_promotable(&self) -> Result<()> {
+    pub fn assert_bot_promotable(&self) -> Result<()> {
         let kind = &self.me_in_chat().kind;
 
         ensure!(
@@ -523,7 +526,7 @@ impl<'a> Ctx<'a, Loaded> {
     ///
     /// # Errors
     /// If the privilege and status are not fullfilled.
-    pub fn assert_anonymous(&self) -> Result<()> {
+    pub fn assert_bot_anonymous(&self) -> Result<()> {
         let kind = &self.me_in_chat().kind;
 
         ensure!(

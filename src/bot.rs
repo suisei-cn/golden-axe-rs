@@ -6,7 +6,7 @@ use std::{
 };
 
 use color_eyre::{
-    eyre::{ensure, ContextCompat},
+    eyre::{bail, ensure, ContextCompat},
     Result,
 };
 use sled::Db;
@@ -108,19 +108,23 @@ async fn handle_command(
             ctx.handle_with(|ctx| async move {
                 match cmd {
                     Command::Title { title } => {
+                        ensure!(!title.is_empty(), "Title cannot be empty");
                         ctx.prep_edit().await?;
                         ctx.set_title(title).await?;
                         ctx.done().await
                     }
                     Command::Demote => {
                         ctx.assert_editable()?;
-                        ctx.assert_promotable()?;
+                        ctx.assert_bot_promotable()?;
                         ctx.demote().await?;
                         ctx.remove_title_with_id()?;
                         ctx.done().await
                     }
                     Command::Anonymous => {
-                        ctx.assert_anonymous()?;
+                        ctx.assert_bot_anonymous()?;
+                        if ctx.assert_bot_anonymous().is_ok() {
+                            bail!("You are already anonymous")
+                        }
                         ensure!(
                             ctx.get_record_with_id()?.is_some(),
                             "Before making anonymous, use /title first to register"
@@ -134,7 +138,6 @@ async fn handle_command(
                         ctx.done().await
                     }
                     Command::Titles => {
-                        ctx.assert_sender_admin()?;
                         let keys = ctx.list_titles()?;
                         let show = if keys.is_empty() {
                             "No titles found.".to_owned()
