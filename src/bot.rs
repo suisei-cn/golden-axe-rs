@@ -26,14 +26,18 @@ pub enum Command {
     Start,
     #[command(description = "Change my title.")]
     Title { title: String },
+    #[command(description = "Remove specific title")]
+    RemoveTitle { title: String },
+    #[command(description = "Get all titles being used")]
+    Titles,
     #[command(description = "Demote me and remove my title")]
     Demote,
+    #[command(description = "Demote everyone and remove all titles in chat")]
+    Nuke,
     #[command(description = "Make me anonymous")]
     Anonymous,
     #[command(description = "Make me un-anonymous")]
     DeAnonymous,
-    #[command(description = "Get all titles being used")]
-    Titles,
 }
 
 #[test]
@@ -115,6 +119,11 @@ async fn handle_command(
                         ctx.set_title(title).await?;
                         ctx.done().await
                     }
+                    Command::RemoveTitle { title } => {
+                        ctx.assert_sender_owner()?;
+                        ctx.remove_title_with_sig(&title)?;
+                        ctx.done().await
+                    }
                     Command::Demote => {
                         ctx.assert_editable()?;
                         ctx.assert_bot_promotable()?;
@@ -136,6 +145,11 @@ async fn handle_command(
                     }
                     Command::DeAnonymous => {
                         ctx.de_anonymous().await?;
+                        ctx.done().await
+                    }
+                    Command::Nuke => {
+                        ctx.assert_sender_owner()?;
+                        ctx.nuke().await?;
                         ctx.done().await
                     }
                     Command::Titles => {

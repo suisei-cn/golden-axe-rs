@@ -12,6 +12,7 @@ use color_eyre::{
     eyre::{bail, ensure, eyre, Context, ContextCompat},
     Result,
 };
+use futures::future::try_join_all;
 use sled::{Db, IVec};
 use tap::TapFallible;
 use teloxide::{
@@ -278,6 +279,54 @@ impl<'a, S> Ctx<'a, S> {
         })
     }
 
+    /// Demote everyone and remove all titles in chat
+    ///
+    /// # Errors
+    /// If the bot cannot demote everyone or the database cannot remove all
+    pub async fn nuke(&self) -> Result<()> {
+        let chat_id = self.chat_id();
+
+        let all_admins = self
+            .bot
+            .get_chat_administrators(self.chat_id())
+            .await
+            .map_err(|e| {
+                send_debug(&e);
+                eyre!("Failed to load all admins")
+            })?;
+
+        let all_count = all_admins.len() - 1;
+
+        let res = try_join_all(
+            all_admins
+                .into_iter()
+                .filter(|x| x.is_administrator() && x.can_be_edited())
+                .map(|member| {
+                    let id = member.user.id;
+                    if let Some(record) = TitleRecord::get_with_id(self.db, chat_id, id)? {
+                        record.remove_from(self.db)?;
+                    };
+                    let fut = async move {
+                        self.bot.promote_chat_member(chat_id, id).send().await?;
+
+                        Result::<_>::Ok(())
+                    };
+                    Result::<_>::Ok(fut)
+                })
+                .try_collect::<Vec<_>>()?,
+        )
+        .await
+        .map_err(|e| {
+            send_debug(&e);
+            eyre!("Failed to load remove all admins")
+        })?;
+
+        self.reply_to(format!("Found {} admins, demoted {}", all_count, res.len()))
+            .await?;
+
+        Ok(())
+    }
+
     /// Make the user anonymous
     ///
     /// # Errors
@@ -443,8 +492,9 @@ impl<'a, 'u> Ctx<'a, Loaded> {
                     send_debug(&error);
                     eyre!("Failed to promote")
                 })?;
+                self.reply_to("Promoted, wait...").await?;
                 // Wait a while for the promotion to take effect.
-                sleep(Duration::from_secs_f32(0.5)).await;
+                sleep(Duration::from_secs_f32(1.5)).await;
             }
             kind => bail!(
                 "I can't edit you because of your status({})",

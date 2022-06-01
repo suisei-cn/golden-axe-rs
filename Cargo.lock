@@ -457,6 +457,7 @@ dependencies = [
  "color-eyre",
  "dotenv",
  "figment",
+ "futures",
  "hyper",
  "mod_use",
  "serde",

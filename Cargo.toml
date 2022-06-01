@@ -21,6 +21,7 @@ teloxide           = { version = "0.9", features = ["auto-send", "macros", "ctrl
 tokio              = { version = "1.18", features = ["rt-multi-thread", "macros", "signal"] }
 figment            = { version = "0.10.6", features = ["env"] }
 hyper = { version = "0.14.19", features = ["http1", "http2", "server"] }
+futures = "0.3.21"
 
 [[bin]]
 name = "golden-axe"
