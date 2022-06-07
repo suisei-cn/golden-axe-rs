@@ -26,6 +26,7 @@ use tracing_subscriber::{
 
 // (user_id, username)
 pub static BOT_INFO: SyncOnceCell<(UserId, String)> = SyncOnceCell::new();
+pub static BOT: SyncOnceCell<BotType> = SyncOnceCell::new();
 
 type BotType = AutoSend<DefaultParseMode<Bot>>;
 
@@ -54,10 +55,11 @@ async fn main() -> Result<()> {
     let bot: BotType = Bot::new(&conf.token)
         .parse_mode(ParseMode::Html)
         .auto_send();
+    BOT.set(bot.clone()).unwrap();
 
     let db = sled::open(&conf.db_path).unwrap();
 
-    let _ = debug_chat::init(bot.clone());
+    let _ = debug_chat::init();
 
     select! {
         _ = server::run() => {},

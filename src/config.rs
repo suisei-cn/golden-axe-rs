@@ -5,7 +5,7 @@ use std::{
     hash::{Hash, Hasher},
     lazy::SyncOnceCell,
     path::PathBuf,
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use color_eyre::{eyre::Context, Result};
@@ -15,7 +15,7 @@ use serde_with::{serde_as, DisplayFromStr};
 use tracing::level_filters::LevelFilter;
 
 mod default {
-    use std::path::PathBuf;
+    use std::{path::PathBuf, time::Duration};
 
     use tracing::level_filters::LevelFilter;
 
@@ -25,6 +25,10 @@ mod default {
 
     pub fn db_path() -> PathBuf {
         PathBuf::from("/data/db.sled")
+    }
+
+    pub const fn delete_after() -> Duration {
+        Duration::from_secs(10)
     }
 }
 
@@ -36,6 +40,9 @@ pub struct Config {
     pub log: LevelFilter,
     #[serde(default = "default::db_path")]
     pub db_path: PathBuf,
+    #[serde(with = "humantime_serde")]
+    #[serde(default = "default::delete_after")]
+    pub delete_after: Duration,
     pub token: String,
     pub debug_chat: Option<i64>,
 }
@@ -114,6 +121,7 @@ fn test_config() {
         j.set_env("GOLDEN_AXE_TOKEN", "token");
         j.set_env("GOLDEN_AXE_DEBUG_CHAT", "123");
         j.set_env("GOLDEN_AXE_DB_PATH", "/abc");
+        j.set_env("GOLDEN_AXE_DELETE_AFTER", "100s");
 
         assert_eq!(
             Config::from_env().unwrap(),
@@ -122,6 +130,7 @@ fn test_config() {
                 token: "token".to_string(),
                 debug_chat: Some(123),
                 db_path: "/abc".into(),
+                delete_after: Duration::from_secs(100),
             }
         );
         Ok(())
@@ -142,6 +151,7 @@ fn test_config_minimal() {
                 token: "token".to_string(),
                 debug_chat: None,
                 db_path: "/data/db.sled".into(),
+                delete_after: Duration::from_secs(10),
             }
         );
         Ok(())

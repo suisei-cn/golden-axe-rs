@@ -25,7 +25,7 @@ use teloxide::{
 use tokio::{time::sleep, try_join};
 use tracing::info;
 
-use crate::{send_debug, BotType, BOT_INFO};
+use crate::{catch, send_debug, BotType, Config, BOT, BOT_INFO};
 
 /// Context of a "conversion", which is formed when an user sends a command to
 /// the bot.
@@ -112,7 +112,7 @@ impl<'a, 'u> Ctx<'a, ()> {
         Func: FnOnce(Ctx<'a, Loaded>) -> Fut + Send,
     {
         let ctx = self.clone();
-        let mut loaded = ctx.fetch().await?;
+        let mut loaded = ctx.upgrade().await?;
 
         // Error occurred in inner will be sent to user directly - Logic error
         let inner = move || async {
@@ -123,10 +123,11 @@ impl<'a, 'u> Ctx<'a, ()> {
         };
 
         if let Err(e) = inner().await {
-            self.reply_to(e.to_string()).await
-        } else {
-            Ok(())
+            self.reply_to_then_del(e.to_string()).await?;
         }
+        self.del_msg_delayed();
+
+        Ok(())
     }
 }
 
@@ -262,7 +263,7 @@ impl<'a, S> Ctx<'a, S> {
     ///
     /// # Errors
     /// If the chat member information cannot be fetched.
-    pub async fn fetch(self) -> Result<Ctx<'a, Loaded>> {
+    async fn upgrade(self) -> Result<Ctx<'a, Loaded>> {
         let (me, sender) = try_join!(
             self.bot.get_chat_member(
                 self.chat_id(),
@@ -415,12 +416,56 @@ impl<'a, S> Ctx<'a, S> {
         Ok(())
     }
 
+    /// Reply to the sender with a message and delete the msg after a period of
+    /// time.
+    ///
+    /// # Errors
+    /// When fails to send the message.
+    pub async fn reply_to_then_del(&self, text: impl Into<String> + Send) -> Result<()> {
+        let msg = self
+            .bot
+            .send_message(self.chat_id(), text)
+            .reply_to_message_id(self.msg.id)
+            .await?;
+        self.del_msg_delayed_with_id(msg.id);
+        Ok(())
+    }
+
+    pub fn del_msg_delayed(&self) {
+        self.del_msg_delayed_with_id(self.msg.id);
+    }
+
+    /// Delete the message with the given id after a period of time.
+    ///
+    /// # Panics
+    /// If either bot or config is not initialized.
+    pub fn del_msg_delayed_with_id(&self, msg_id: i32) {
+        let chat_id = self.chat_id();
+
+        tokio::spawn(async move {
+            let config = Config::get();
+            tokio::time::sleep(config.delete_after).await;
+            let bot = BOT.get().unwrap();
+            catch!(bot.delete_message(chat_id, msg_id).send().await);
+        });
+    }
+
+    /// Delete the command.
+    ///
+    /// # Errors
+    /// If the bot cannot delete the message.
+    pub async fn del_msg(&self) -> Result<()> {
+        let chat_id = self.chat_id();
+        self.bot.delete_message(chat_id, self.msg.id).send().await?;
+        Ok(())
+    }
+
     /// Tell the sender that the requested action has been conducted.
     ///
     /// # Errors
-    /// When the message sending fails.
+    /// When the message deletion failed.
     pub async fn done(&self) -> Result<()> {
-        self.reply_to("Done! Wait for a while to take effect.")
+        self.reply_to_then_del("Done! Wait for a while to take effect.")
             .await
     }
 
