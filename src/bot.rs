@@ -1,8 +1,7 @@
 use std::{
     convert::Infallible,
     future::{ready, Future},
-    lazy::SyncLazy,
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use color_eyre::{
@@ -107,7 +106,7 @@ async fn handle_command(
 
     catch!(match command {
         Command::Help | Command::Start => {
-            static DESC: SyncLazy<String> = SyncLazy::new(|| Command::descriptions().to_string());
+            static DESC: LazyLock<String> = LazyLock::new(|| Command::descriptions().to_string());
             ctx.reply_to(&*DESC).await
         }
         cmd => {

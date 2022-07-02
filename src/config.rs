@@ -3,8 +3,8 @@
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
-    lazy::SyncOnceCell,
     path::PathBuf,
+    sync::OnceLock,
     time::{Duration, SystemTime},
 };
 
@@ -33,7 +33,7 @@ mod default {
 }
 
 #[serde_as]
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Config {
     #[serde_as(as = "DisplayFromStr")]
     #[serde(default = "default::log")]
@@ -74,7 +74,7 @@ impl Config {
     /// # Errors
     /// Failed to [construct the config from env](#method.from_env).
     pub fn try_get<'a>() -> Result<&'a Self> {
-        static CELL: SyncOnceCell<Config> = SyncOnceCell::new();
+        static CELL: OnceLock<Config> = OnceLock::new();
         CELL.get_or_try_init(Self::from_env)
             .wrap_err("Failed to initialize config")
     }
@@ -89,7 +89,7 @@ impl Config {
     }
 
     pub fn run_hash<'a>(&self) -> &'a str {
-        static CELL: SyncOnceCell<String> = SyncOnceCell::new();
+        static CELL: OnceLock<String> = OnceLock::new();
         CELL.get_or_init(|| {
             let mut hasher = DefaultHasher::new();
 

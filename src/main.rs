@@ -9,7 +9,7 @@
 
 mod_use![bot, debug_chat, ctx, config, server];
 
-use std::{lazy::SyncOnceCell, time::Duration};
+use std::{sync::OnceLock, time::Duration};
 
 use color_eyre::Result;
 use mod_use::mod_use;
@@ -25,8 +25,8 @@ use tracing_subscriber::{
 };
 
 // (user_id, username)
-pub static BOT_INFO: SyncOnceCell<(UserId, String)> = SyncOnceCell::new();
-pub static BOT: SyncOnceCell<BotType> = SyncOnceCell::new();
+pub static BOT_INFO: OnceLock<(UserId, String)> = OnceLock::new();
+pub static BOT: OnceLock<BotType> = OnceLock::new();
 
 type BotType = AutoSend<DefaultParseMode<Bot>>;
 
@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
 
     let db = sled::open(&conf.db_path).unwrap();
 
-    let _ = debug_chat::init();
+    debug_chat::init();
 
     select! {
         _ = server::run() => {},

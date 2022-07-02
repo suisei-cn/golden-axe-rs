@@ -1,5 +1,6 @@
-use std::lazy::SyncOnceCell;
+use std::sync::OnceLock;
 
+use tap::TapOptional;
 use teloxide::{
     prelude::{Request, Requester},
     types::ChatId,
@@ -9,15 +10,15 @@ use tracing::{info, warn};
 
 use crate::{Config, BOT};
 
-static DEBUG_CHANNEL: SyncOnceCell<Option<UnboundedSender<String>>> = SyncOnceCell::new();
+static DEBUG_CHANNEL: OnceLock<Option<UnboundedSender<String>>> = OnceLock::new();
 
 /// # Panics
 /// When config cannot be parsed
-#[must_use]
-pub fn init<'a>() -> Option<&'a UnboundedSender<String>> {
-    DEBUG_CHANNEL
-        .get_or_init(|| {
-            match Config::get().debug_chat.map(|id| {
+pub fn init() {
+    DEBUG_CHANNEL.get_or_init(|| {
+        Config::get()
+            .debug_chat
+            .map(|id| {
                 let (tx, mut rx) = unbounded_channel();
 
                 tokio::spawn(async move {
@@ -32,15 +33,9 @@ pub fn init<'a>() -> Option<&'a UnboundedSender<String>> {
                 info!("Debug channel worker initialized");
 
                 tx
-            }) {
-                Some(tx) => Some(tx),
-                None => {
-                    warn!("`debug_chat` not present, debug messages will be printed to log");
-                    None
-                }
-            }
-        })
-        .as_ref()
+            })
+            .tap_none(|| warn!("`debug_chat` not present, debug messages will be printed to log"))
+    });
 }
 
 /// Send a debug message to the debug channel if `debug_chat` is set or or log
