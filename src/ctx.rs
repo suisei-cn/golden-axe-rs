@@ -529,22 +529,19 @@ impl<'a, 'u> Ctx<'a, Loaded> {
     /// # Errors
     /// If the sender is not found or error during fetching
     pub async fn fetch_real_chat_member(&mut self) -> Result<()> {
-        //  Sender is anonymous, try to decode the identity
+        // Sender is anonymous, try to decode the identity
         if self.conversation.sender.user.first_name == "Group" {
             info!("Sender is anonymous, trying to find real identity");
             self.is_anonymous = true;
             let sig = match self.msg.author_signature() {
                 Some(sig) => sig,
                 None => {
-                    bail!(
-                        "You/they are anonymous and don't have a title so unable to identify \
-                         you/them"
-                    )
+                    bail!("Unable to identify target (no title)")
                 }
             };
             let real = match self.get_record_with_sig(sig)? {
                 Some(real) => real,
-                None => bail!("I don't recognize you"),
+                None => bail!("Unable to identify target (no record found)"),
             };
             let real = self.bot.get_chat_member(real.chat_id, real.user_id).await?;
             self.sender = real.user.clone();
@@ -578,7 +575,7 @@ impl<'a, 'u> Ctx<'a, Loaded> {
                 sleep(Duration::from_secs_f32(1.5)).await;
             }
             kind => bail!(
-                "I can't edit you/them because of your(their) status({})",
+                "Unable to edit you/them because of your(their) status({})",
                 chat_member_kind_to_str(kind)
             ),
         }
@@ -665,13 +662,13 @@ impl<'a, 'u> Ctx<'a, Loaded> {
                 Administrator(Admin { can_be_edited, .. }) => {
                     ensure!(
                         can_be_edited,
-                        "I can't change your/their info (are you/they promoted by others?)"
+                        "Unable to change info (maybe promoted by others?)"
                     );
                     Ok(())
                 }
                 Member => Ok(()),
                 ref k => bail!(
-                    "I can't edit you/them because of your/their status({})",
+                    "Unable to edit because of status ({})",
                     chat_member_kind_to_str(k)
                 ),
             },
@@ -688,7 +685,7 @@ impl<'a, 'u> Ctx<'a, Loaded> {
 
         ensure!(
             kind.can_promote_members() && kind.can_invite_users(),
-            "I don't have the privilege to promote others, please contant admin"
+            "Unable to promote others because lack of privilege"
         );
 
         Ok(())
@@ -703,8 +700,7 @@ impl<'a, 'u> Ctx<'a, Loaded> {
 
         ensure!(
             kind.can_promote_members() && kind.is_anonymous(),
-            "I don't have the privilege to make others anonymous, please contant admin (I need to \
-             be anonymous first to make others anonymous"
+            "Unable to make others anonymous because lack of privilege"
         );
 
         Ok(())
@@ -716,20 +712,22 @@ impl<'a, 'u> Ctx<'a, Loaded> {
     /// If the privilege and status are not fullfilled.
     #[allow(clippy::missing_panics_doc)]
     pub fn assert_sender_anonymous(&self) -> Result<()> {
-        ensure!(self.is_anonymous, "You/they are not anonymous");
+        ensure!(self.is_anonymous, "Target not anonymous");
         Ok(())
     }
 }
 
 #[must_use]
 pub const fn chat_member_kind_to_str(kind: &ChatMemberKind) -> &'static str {
+    use ChatMemberKind::*;
+
     match kind {
-        ChatMemberKind::Administrator(..) => "admin",
-        ChatMemberKind::Member => "member",
-        ChatMemberKind::Owner(_) => "owner",
-        ChatMemberKind::Restricted(_) => "restricted",
-        ChatMemberKind::Left => "left",
-        ChatMemberKind::Banned(_) => "banned",
+        Administrator(..) => "admin",
+        Member => "member",
+        Owner(_) => "owner",
+        Restricted(_) => "restricted",
+        Left => "left",
+        Banned(_) => "banned",
     }
 }
 

@@ -52,16 +52,8 @@ impl Config {
     ///
     /// e.g. `GOLDEN_AXE_TOKEN=123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ`
     ///
-    /// # Additional check
-    ///
-    /// Config is in good shape iff:
-    /// - When `mode` being set to [`BotMode::Webhook`], `domain` is also set.
-    ///
-    /// Bad config will result in an `Err` being returned.
-    ///
     /// # Errors
-    /// If any of the required environment variable is not set or not in proper
-    /// format, or the config is [not in good shape](#additional-check).
+    /// If any of the required environment variable is not set
     pub fn from_env() -> Result<Self> {
         Figment::new()
             .merge(Env::prefixed("GOLDEN_AXE_"))
